@@ -46,13 +46,13 @@ command -v yt-dlp ffmpeg whisper tesseract python3
 
 # 2) corregir los errores típicos de Whisper (opt-in, con diccionario)
 ./scripts/normalize_transcript.py xvm-out/transcript.txt \
-    --fixes fixes/anthropic-agents.tsv -o xvm-out/transcript.clean.txt --report
+    --fixes references/fixes/anthropic-agents.tsv -o xvm-out/transcript.clean.txt --report
 
 # 3) pegar el relato a las slides
 ./scripts/align_slides.py xvm-out
 
 # 4) armar el borrador del manual
-./scripts/build_manual.py xvm-out --title "Mi charla" --fixes fixes/anthropic-agents.tsv
+./scripts/build_manual.py xvm-out --title "Mi charla" --fixes references/fixes/anthropic-agents.tsv
 
 # 5) redactar el manual final (lo hace el agente) y, si querés, exportar a PDF
 ```
@@ -124,7 +124,7 @@ sirve para dominios distintos.
 - Formato: `<patrón regex> \t <reemplazo literal> \t <nota> \t [<prioridad>]`.
   Las reglas se ordenan por prioridad y longitud, así las específicas ganan a las genéricas.
 - `--report` escribe un `corrections.json` con cada cambio (original, corregido, regla, origen).
-- Diccionario incluido: `fixes/anthropic-agents.tsv` (charlas sobre agentes y Anthropic).
+- Diccionario incluido: `references/fixes/anthropic-agents.tsv` (charlas sobre agentes y Anthropic).
 
 ## Estructura
 
@@ -138,10 +138,10 @@ sirve para dominios distintos.
 │   ├── align_slides.py          # relato ↔ slide → timeline.md
 │   ├── normalize_transcript.py  # motor de correcciones (diccionario externo)
 │   └── build_manual.py          # kit → borrador de manual
-├── fixes/
-│   └── anthropic-agents.tsv     # diccionario de correcciones del dominio
 ├── references/
-│   └── whisper-fixes.md         # errores conocidos y cómo extender el diccionario
+│   ├── whisper-fixes.md         # errores conocidos y cómo extender el diccionario
+│   └── fixes/
+│       └── anthropic-agents.tsv # diccionario de correcciones del dominio
 ├── templates/
 │   └── manual-template.md       # estructura sugerida del manual
 ├── tests/                       # pytest

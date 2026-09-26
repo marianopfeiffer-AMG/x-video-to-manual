@@ -31,9 +31,9 @@ Salida (en DIR):
   meta.txt             metadatos (duración, resolución, fuente, fecha)
 
 Siguiente paso:
-  scripts/normalize_transcript.py <DIR>/transcript.txt --fixes fixes/anthropic-agents.tsv -o <DIR>/transcript.clean.txt
+  scripts/normalize_transcript.py <DIR>/transcript.txt --fixes references/fixes/anthropic-agents.tsv -o <DIR>/transcript.clean.txt
   scripts/align_slides.py <DIR>            # pega el relato a las slides → timeline.md
-  scripts/build_manual.py <DIR> --title "..." --fixes fixes/anthropic-agents.tsv
+  scripts/build_manual.py <DIR> --title "..." --fixes references/fixes/anthropic-agents.tsv
 EOF
 }
 

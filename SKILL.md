@@ -56,7 +56,7 @@ Sin `--fixes` el texto pasa intacto. Con el diccionario, corrige la jerga del do
 
 ```bash
 scripts/normalize_transcript.py xvm-out/transcript.txt \
-    --fixes fixes/anthropic-agents.tsv -o xvm-out/transcript.clean.txt --report
+    --fixes references/fixes/anthropic-agents.tsv -o xvm-out/transcript.clean.txt --report
 ```
 
 Editar `transcript.clean.txt` a mano es válido: `build_manual.py` lo respeta y no lo
@@ -74,7 +74,7 @@ relato adentro. Sin esto, el manual tiene texto y slides, pero desconectados.
 ### 4. Armar el borrador
 
 ```bash
-scripts/build_manual.py xvm-out --title "Mi charla" --fixes fixes/anthropic-agents.tsv
+scripts/build_manual.py xvm-out --title "Mi charla" --fixes references/fixes/anthropic-agents.tsv
 ```
 
 `build_manual.py` usa `timeline.md` si existe.
@@ -108,4 +108,4 @@ transcripción cruda como definitiva.
 
 - `references/whisper-fixes.md` — errores conocidos y cómo extender el diccionario.
 - `templates/manual-template.md` — estructura sugerida del manual final.
-- `fixes/anthropic-agents.tsv` — diccionario del dominio agentes/Anthropic.
+- `references/fixes/anthropic-agents.tsv` — diccionario del dominio agentes/Anthropic.

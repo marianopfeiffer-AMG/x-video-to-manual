@@ -7,7 +7,7 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 
 from normalize_transcript import apply_fixes, load_fixes  # noqa: E402
 
-FIXES = ROOT / 'fixes' / 'anthropic-agents.tsv'
+FIXES = ROOT / 'references' / 'fixes' / 'anthropic-agents.tsv'
 
 
 def test_sin_diccionario_no_toca_nada():

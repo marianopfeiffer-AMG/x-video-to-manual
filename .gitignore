@@ -4,3 +4,6 @@ xvm-out/
 *.srt
 frames/
 __pycache__/
+
+__pycache__/
+.pytest_cache/

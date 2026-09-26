@@ -38,7 +38,7 @@ El motor (`scripts/normalize_transcript.py`) **no trae reglas hardcodeadas**: le
 
 1. Corré con `--report` y mirá el `corrections.json` (original, corregido, regla, línea).
 2. Buscá en la transcripción frases que "no cierran" (el hablante nunca diría eso).
-3. Agregá la regla al TSV del dominio (o creá uno nuevo, p. ej. `fixes/mi-tema.tsv`).
+3. Agregá la regla al TSV del dominio (o creá uno nuevo, p. ej. `references/fixes/mi-tema.tsv`).
 4. Si la corrección es dudosa, marcala `[?]` en el manual en vez de forzarla.
 
 ## Mejor aún: arreglarlo en el origen

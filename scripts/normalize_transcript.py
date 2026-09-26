@@ -14,7 +14,7 @@ La prioridad existe porque un patrón con lookaheads puede ser *largo en caracte
 *genérico en alcance* (ver la regla de "Cloud"). Se deduplican.
 
 Uso:
-    normalize_transcript.py transcript.txt --fixes fixes/anthropic-agents.tsv -o clean.txt
+    normalize_transcript.py transcript.txt --fixes references/fixes/anthropic-agents.tsv -o clean.txt
     normalize_transcript.py transcript.txt --fixes a.tsv --fixes b.tsv --report
 """
 import argparse
