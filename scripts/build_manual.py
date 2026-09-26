@@ -5,7 +5,7 @@ Lee (en este orden de prioridad): `transcript.clean.txt` > `transcript.txt` > `t
 Si existe el `.clean.txt` NO se vuelve a normalizar: se respeta lo que editó el humano.
 
 Uso:
-    build_manual.py /ruta/al/kit [--title "..."] [--out manual-draft.md] [--fixes fixes/x.tsv]
+    build_manual.py /ruta/al/kit [--title "..."] [--out manual-draft.md] [--fixes references/fixes/x.tsv]
 """
 import argparse
 import pathlib
