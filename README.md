@@ -1,5 +1,9 @@
 # x-video-to-manual
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3](https://img.shields.io/badge/python-3.x-blue.svg)]()
+[![Requires](https://img.shields.io/badge/requires-yt--dlp%20%C2%B7%20ffmpeg%20%C2%B7%20whisper%20%C2%B7%20tesseract-lightgrey.svg)]()
+
 Convierte un **video** (de X/Twitter o un archivo local) en un **manual estructurado** (Markdown + PDF),
 todo con herramientas locales. Sin APIs pagas.
 
@@ -80,4 +84,25 @@ walkthrough y la transcripción corregida.
 
 ## Licencia
 
-MIT (ajustar según necesidad).
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+**MIT** — podés usar, copiar, modificar, distribuir y vender, gratis y sin pedir permiso.
+La única condición es la atribución (abajo).
+
+### Atribución requerida
+
+Si usás este proyecto (total o parcialmente), tenés que:
+
+1. Mantener el aviso de copyright del archivo [`LICENSE`](LICENSE).
+2. Acreditar al autor: **Mariano Pfeiffer** — https://github.com/marianopfeiffer-AMG
+3. Enlazar al repo original: https://github.com/marianopfeiffer-AMG/x-video-to-manual
+
+El texto de MIT ya obliga a esto ("The above copyright notice and this permission
+notice shall be included in all copies or substantial portions of the Software").
+Acá queda dicho sin vueltas, en castellano.
+
+## Contenido y derechos
+
+La licencia MIT cubre el **código** de este repo. **No** cubre el contenido de los
+videos que proceses: la transcripción y las slides pertenecen a quien las produjo.
+Cada usuario es responsable de qué material procesa y de cómo lo distribuye.
