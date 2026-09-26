@@ -1,11 +1,11 @@
 # x-video-to-manual
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3](https://img.shields.io/badge/python-3.x-blue.svg)]()
-[![Requires](https://img.shields.io/badge/requires-yt--dlp%20%C2%B7%20ffmpeg%20%C2%B7%20whisper%20%C2%B7%20tesseract-lightgrey.svg)]()
+[![Python 3](https://img.shields.io/badge/python-3.x-blue.svg)](https://www.python.org/)
+[![Requiere](https://img.shields.io/badge/requiere-yt--dlp%20%C2%B7%20ffmpeg%20%C2%B7%20whisper-lightgrey.svg)](#requisitos)
 
-Convierte un **video** (de X/Twitter o un archivo local) en un **manual estructurado** (Markdown + PDF),
-todo con herramientas locales. Sin APIs pagas.
+Convierte un **video** (de X/Twitter o un archivo local) en un **manual estructurado**
+(Markdown + PDF), todo con herramientas locales. **Sin APIs pagas.**
 
 ```
 video → audio → transcripción (Whisper) → slides (OCR) → manual (redacción)
@@ -26,12 +26,13 @@ querés sacarle un documento útil — el texto, las slides y la estructura — 
 
 ## Requisitos
 
-```bash
-command -v yt-dlp ffmpeg whisper tesseract    # todos
-```
-
-- `yt-dlp`, `ffmpeg`, `whisper` (openai-whisper), `tesseract` (recomendado), `python3`
+- `yt-dlp`, `ffmpeg`/`ffprobe`, `whisper` (openai-whisper), `python3`
+- `tesseract` (recomendado: es lo que rescata el texto de las slides)
 - Para el PDF: un venv con `markdown` + `wkhtmltopdf` (o `pandoc`)
+
+```bash
+command -v yt-dlp ffmpeg whisper tesseract python3
+```
 
 ## Quickstart
 
@@ -39,14 +40,34 @@ command -v yt-dlp ffmpeg whisper tesseract    # todos
 # 1) descargar + transcribir + frames + OCR  → kit en ./xvm-out
 ./scripts/x-video-to-manual.sh "https://x.com/<user>/status/<id>" --out ./xvm-out --model small
 
-# 2) limpiar los errores típicos de Whisper
-./scripts/normalize_transcript.py xvm-out/transcript.txt -o xvm-out/transcript.clean.txt --report
+# 2) corregir los errores típicos de Whisper (opt-in, con diccionario)
+./scripts/normalize_transcript.py xvm-out/transcript.txt \
+    --fixes fixes/anthropic-agents.tsv -o xvm-out/transcript.clean.txt --report
 
 # 3) armar el borrador del manual
-./scripts/build_manual.py xvm-out --title "Mi charla" --out manual-draft.md
+./scripts/build_manual.py xvm-out --title "Mi charla" --fixes fixes/anthropic-agents.tsv
 
 # 4) redactar el manual final (lo hace el agente) y, si querés, exportar a PDF
 ```
+
+Para bajar el ruido en la fuente, pasale a Whisper el vocabulario del video:
+
+```bash
+./scripts/x-video-to-manual.sh <url> --vocab "Claude, Anthropic, MCP, harness, sandbox"
+```
+
+## Correcciones de transcripción
+
+Whisper alucina homófonos en jerga técnica: `agentic` → *"Asian"*, `Claude` → *"Cloud"*,
+`harness` → *"furnace"*… El normalizador **no trae reglas hardcodeadas**: las lee de un
+TSV, así el mismo motor sirve para dominios distintos.
+
+- **Sin `--fixes` no modifica nada.** Nada de reglas globales que rompan texto legítimo
+  ("Google Cloud" ≠ "Google Claude").
+- Formato: `<patrón regex> \t <reemplazo literal> \t <nota> \t [<prioridad>]`.
+  Las reglas se ordenan por prioridad y longitud, así las específicas ganan a las genéricas.
+- `--report` escribe un `corrections.json` con cada cambio (original, corregido, regla, origen).
+- Diccionario incluido: `fixes/anthropic-agents.tsv` (charlas sobre agentes y Anthropic).
 
 ## Estructura
 
@@ -55,30 +76,35 @@ command -v yt-dlp ffmpeg whisper tesseract    # todos
 ├── SKILL.md                     # especificación de la skill (AgentSkills)
 ├── scripts/
 │   ├── x-video-to-manual.sh     # orquestador: video → kit
-│   ├── normalize_transcript.py  # diccionario de correcciones de Whisper
+│   ├── srt.py                   # parser de SRT (único, soporta CRLF/BOM)
+│   ├── normalize_transcript.py  # motor de correcciones (diccionario externo)
 │   └── build_manual.py          # kit → borrador de manual
+├── fixes/
+│   └── anthropic-agents.tsv     # diccionario de correcciones del dominio
 ├── references/
-│   └── whisper-fixes.md         # errores conocidos de Whisper y cómo extenderlos
+│   └── whisper-fixes.md         # errores conocidos y cómo extender el diccionario
 ├── templates/
 │   └── manual-template.md       # estructura sugerida del manual
+├── tests/                       # pytest
 └── examples/
-    ├── claude-managed-agents-manual.md    # ejemplo real (charla de Anthropic, 12 min)
+    ├── claude-managed-agents-manual.md
     └── claude-managed-agents-manual.pdf
 ```
 
-## Ejemplo incluido
+## Tests
 
-`examples/` contiene un manual real generado con este pipeline a partir de un video de X
-(una charla de Anthropic sobre *Claude Managed Agents*): 5 páginas, con las slides, el
-walkthrough y la transcripción corregida.
+```bash
+python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
+pytest -q
+```
 
 ## Notas / gotchas
 
 - **Sin GPU es lento**: Whisper `small` ≈ 0.5x realtime en 2 vCPU (12 min de audio ≈ 25 min).
   `base` es ~4x más rápido pero comete más errores.
-- **Whisper alucina homófonos** en jerga técnica (`agentic` → *"Asian"*, `Claude` → *"Cloud"*,
-  `harness` → *"furnace"*…). Pasá siempre el normalizador.
 - **Verificá el orador** en la placa de título del video, no en el post que lo compartió.
+  Quien tuitea un video no siempre es quien habla.
+- Los frames se sacan a resolución nativa: si los achicás, el OCR lee peor.
 - Si tenés un modelo de visión disponible, usalo para describir los diagramas; si no,
   el OCR de `tesseract` cubre el texto de las slides.
 
@@ -105,4 +131,5 @@ Acá queda dicho sin vueltas, en castellano.
 
 La licencia MIT cubre el **código** de este repo. **No** cubre el contenido de los
 videos que proceses: la transcripción y las slides pertenecen a quien las produjo.
-Cada usuario es responsable de qué material procesa y de cómo lo distribuye.
+Cada usuario es responsable de qué material procesa y de cómo lo distribuye, y debe
+respetar las condiciones de la plataforma de origen.

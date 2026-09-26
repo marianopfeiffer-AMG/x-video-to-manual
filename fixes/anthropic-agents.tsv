@@ -1,0 +1,30 @@
+# Diccionario de correcciones para transcripciones de charlas sobre agentes / Anthropic.
+# Formato: <patrón regex>	<reemplazo literal>	<nota>	[<prioridad>]
+#
+# El reemplazo es LITERAL (no admite \1 ni grupos). Para variantes, escribí más reglas.
+# Orden: primero por prioridad (mayor = antes; default 100), después por longitud de patrón.
+#
+# OJO con las reglas genéricas: "Cloud" → "Claude" es tentador pero rompe "Google Cloud".
+# Por eso esa regla va con prioridad baja (corre última) y excluye los productos de
+# Google Cloud conocidos.
+
+Cloud Managed Asians	Claude Managed Agents	producto Anthropic
+Cloud Asian SDK	Claude Agent SDK	producto Anthropic
+Asian harnesses	agentic harnesses	jerga del dominio
+Asian harness	agentic harness	jerga del dominio
+Asian use cases	agent use cases	jerga del dominio
+Agentic furnace	agentic harness	jerga del dominio
+Asian building	agentic building	jerga del dominio
+Managed Asians	Managed Agents	producto Anthropic
+CWC workshops	Code with Claude workshops	evento (Code with Claude)
+Cloud Code	Claude Code	producto Anthropic
+MCT servers	MCP servers	protocolo
+Asian SDK	Agent SDK	producto Anthropic
+checkwining	checkpointing	jerga del dominio
+Anthropik	Anthropic	empresa
+Asian ID	agent ID	jerga del dominio
+entropic	Anthropic	empresa
+grab, glob	grep, glob	herramientas
+furnace	harness	jerga del dominio	50
+MCT	MCP	protocolo	50
+(?<!Google )\bCloud\b(?!\s+(?:Run|Storage|SQL|Spanner|Functions|Build|CDN|Armor|DNS|NAT|Logging|Monitoring|Platform|BigQuery|Firestore|Composer|Scheduler|Tasks|Endpoints|Deploy|Source|Shell|Vision|Translation|Text-to-Speech|Speech-to-Text))	Claude	modelo (excepto "Google Cloud …")	10

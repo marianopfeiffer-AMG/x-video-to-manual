@@ -1,61 +1,92 @@
 #!/usr/bin/env python3
 """build_manual.py — arma un borrador de manual a partir de un kit x-video-to-manual.
 
-Consume la salida de x-video-to-manual.sh (meta.txt, transcript.srt,
-slides-ocr.txt) y produce manual-draft.md: un esqueleto con la transcripción
-corregida, el OCR de las slides y placeholders que el agente/redactor completa.
+Lee (en este orden de prioridad): `transcript.clean.txt` > `transcript.txt` > `transcript.srt`.
+Si existe el `.clean.txt` NO se vuelve a normalizar: se respeta lo que editó el humano.
 
 Uso:
-    build_manual.py /ruta/al/kit [--title "..."] [--out manual-draft.md]
+    build_manual.py /ruta/al/kit [--title "..."] [--out manual-draft.md] [--fixes fixes/x.tsv]
 """
 import argparse
 import pathlib
-import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import srt  # noqa: E402
+
 try:
-    from normalize_transcript import normalize
-except Exception:
-    def normalize(t, report=False):
-        return t
+    from normalize_transcript import load_fixes, apply_fixes
+    _NORM_OK = True
+except Exception as e:  # pragma: no cover
+    _NORM_OK = False
+    _NORM_ERR = e
+
+OCR_MAX_LINES = 400
 
 
-def read(p: pathlib.Path) -> str:
+def _read(p: pathlib.Path) -> str:
     return p.read_text(encoding='utf-8', errors='ignore') if p.exists() else ''
 
 
-def srt_to_lines(raw: str):
-    out = []
-    for b in re.split(r'\n\n+', raw.strip()):
-        parts = b.split('\n')
-        if len(parts) >= 3:
-            ts = parts[1].split(' --> ')[0].split(',')[0]
-            out.append(f"[{ts}] {' '.join(parts[2:]).strip()}")
-    return out
+def _transcript_lines(kit: pathlib.Path, fixes):
+    """Devuelve (lineas, origen). Prioriza el archivo editado a mano."""
+    clean = kit / 'transcript.clean.txt'
+    if clean.exists():
+        print(f"      usando {clean.name} (sin renormalizar)", file=sys.stderr)
+        return clean.read_text(encoding='utf-8', errors='ignore').splitlines(), clean.name
+
+    plain = kit / 'transcript.txt'
+    raw = _read(plain)
+    if not raw:
+        for name in ('transcript.srt', 'audio.srt'):
+            if (kit / name).exists():
+                raw = srt.flatten(srt.parse(_read(kit / name)))
+                break
+
+    lines = raw.splitlines()
+    if fixes:
+        if not _NORM_OK:
+            sys.stderr.write(f"ERROR: no pude importar el normalizador: {_NORM_ERR}\n")
+            return lines, 'sin normalizar'
+        rules = []
+        for f in fixes:
+            rules.extend(load_fixes(pathlib.Path(f)))
+        log = []
+        lines = apply_fixes('\n'.join(lines), rules, log=log).splitlines()
+        print(f"      {len(log)} correcciones aplicadas", file=sys.stderr)
+        return lines, 'normalizado'
+
+    sys.stderr.write("aviso: sin --fixes y sin transcript.clean.txt → "
+                     "la transcripción va sin corregir\n")
+    return lines, 'sin normalizar'
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('kit')
     ap.add_argument('--title', default='(título pendiente)')
     ap.add_argument('--out', default='manual-draft.md')
-    a = ap.parse_args()
+    ap.add_argument('--fixes', action='append', default=[],
+                    help='TSV de correcciones (repetible)')
+    a = ap.parse_args(argv)
 
     kit = pathlib.Path(a.kit)
-    meta = read(kit / 'meta.txt')
-    srt = read(kit / 'transcript.srt') or read(kit / 'audio.srt')
-    ocr = read(kit / 'slides-ocr.txt')
-    tx = read(kit / 'transcript.txt')
-    lines = srt_to_lines(srt) if srt else (tx.splitlines() if tx else [])
-    transcript = normalize('\n'.join(lines))
+    meta = _read(kit / 'meta.txt')
+    ocr = _read(kit / 'slides-ocr.txt')
+    lines, origin = _transcript_lines(kit, a.fixes)
+    transcript = '\n'.join(lines)
 
     slides = [l for l in ocr.splitlines() if not l.startswith('=====') and len(l) > 3]
+    if len(slides) > OCR_MAX_LINES:
+        print(f"aviso: el OCR tiene {len(slides)} líneas; recorto a {OCR_MAX_LINES} "
+              f"(el resto queda en slides-ocr.txt)", file=sys.stderr)
+        slides = slides[:OCR_MAX_LINES]
 
     doc = f"""# {a.title}
 
 > Borrador generado automáticamente por `build_manual.py`. **Completar** las secciones
 > marcadas con TODO cruzando la transcripción y el OCR de slides.
+> Transcripción: **{origin}**.
 
 ## Metadatos
 ```
@@ -73,10 +104,10 @@ def main():
 
 ## Apéndice A — Texto detectado en las slides (OCR)
 ```
-{chr(10).join(slides[:400])}
+{chr(10).join(slides)}
 ```
 
-## Apéndice B — Transcripción corregida
+## Apéndice B — Transcripción
 ```
 {transcript}
 ```

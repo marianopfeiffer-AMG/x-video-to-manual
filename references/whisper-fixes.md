@@ -1,13 +1,13 @@
-# Whisper: errores sistemáticos y correcciones
+# Whisper: errores sistemáticos y cómo corregirlos
 
-Whisper (sobre todo `base`/`small`) alucina homófonos en dominios técnicos.
-Este es el diccionario vivo que usa `normalize_transcript.py`.
+Whisper (sobre todo `base`/`small`) alucina homófonos en dominios técnicos. En charlas
+sobre agentes e IA el patrón es tan consistente que se vuelve predecible.
 
 ## Errores observados
 
 | Whisper dice | Debería decir | Contexto |
 |---|---|---|
-| Asian / Asians | agent / agentic / agents | **el peor**: aparece en todo talk de agentes |
+| Asian / Asians | agent / agentic / agents | **el peor**: aparece en toda charla de agentes |
 | Cloud | Claude | nombre del modelo/producto |
 | Cloud Managed Asians | Claude Managed Agents | producto |
 | Cloud Asian SDK | Claude Agent SDK | producto |
@@ -15,21 +15,39 @@ Este es el diccionario vivo que usa `normalize_transcript.py`.
 | agentic furnace | agentic harness | jerga |
 | MCT servers | MCP servers | protocolo |
 | checkwining | checkpointing | jerga |
-| Waltz | Vault | feature |
 | entropic / Anthropik | Anthropic | empresa |
 | CWC workshops | Code with Claude workshops | evento |
-| grab, glob | grep, glob | tools |
+| grab, glob | grep, glob | herramientas |
+
+## Cómo se corrigen
+
+El motor (`scripts/normalize_transcript.py`) **no trae reglas hardcodeadas**: lee un TSV.
+
+```
+<patrón regex>\t<reemplazo literal>\t<nota>\t[<prioridad>]
+```
+
+- Sin `--fixes` el texto **no se modifica**. Es deliberado: no hay regla global que
+  rompa texto legítimo ("Google Cloud" ≠ "Google Claude").
+- Orden: prioridad (mayor = antes, default 100) y luego longitud de patrón descendente.
+  La prioridad existe para poder relegar patrones que son largos en caracteres pero
+  genéricos en alcance (p. ej. la regla de "Cloud" va con prioridad 10).
+- El reemplazo es **literal** (no admite `\1`): para variantes, escribí más reglas.
 
 ## Cómo extenderlo
 
-1. Correr `normalize_transcript.py ... --report` y mirar la lista de cambios.
-2. Leer el transcript buscando frases que "no cierran" (el hablante nunca diría eso).
-3. Agregar la regla a `FIXES` (literal) o a `CONTEXTUAL` (requiere distinguir por contexto).
-4. Nunca borrar evidencia: si una corrección es dudosa, marcarla `[?]` en el manual.
+1. Corré con `--report` y mirá el `corrections.json` (original, corregido, regla, línea).
+2. Buscá en la transcripción frases que "no cierran" (el hablante nunca diría eso).
+3. Agregá la regla al TSV del dominio (o creá uno nuevo, p. ej. `fixes/mi-tema.tsv`).
+4. Si la corrección es dudosa, marcala `[?]` en el manual en vez de forzarla.
 
-## Heurística de contexto
+## Mejor aún: arreglarlo en el origen
 
-`Asian` a secas es ambiguo. Los patrones contextuales resuelven los casos frecuentes
-(`Asian harness` → `agentic harness`, `Asian ID` → `agent ID`) y dejan `Asian` → `agent`
-como último recurso. Revisar siempre esas conversiones: pueden quedar frases raras
-(p. ej. `agent techniques` en lugar de `agentic techniques`).
+Antes de parchear, sesgá a Whisper con el vocabulario correcto:
+
+```bash
+scripts/x-video-to-manual.sh <url> --vocab "Claude, Anthropic, MCP, harness, sandbox"
+```
+
+Reduce el error en la fuente. No lo elimina: `--initial_prompt` es una sugerencia, no
+una orden.

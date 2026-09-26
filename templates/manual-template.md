@@ -16,7 +16,7 @@
 ## 2. Desarrollo
 
 ### {Sección}
-> *(mm:ss)*
+> Fuente: [mm:ss–mm:ss]
 {contenido}
 
 ## 3. Takeaways

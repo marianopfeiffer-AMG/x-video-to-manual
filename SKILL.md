@@ -1,9 +1,6 @@
 ---
-name: "x-video-to-manual"
-description: "Convertir videos de X (o locales) en manuales Markdown/PDF: descarga, transcripción con Whisper, OCR de slides y redacción."
-status: proposal
-version: "v1"
-date: "2026-09-26T20:35:26.774Z"
+name: x-video-to-manual
+description: Convertir un video (de X/Twitter o un archivo local) en un manual estructurado en Markdown/PDF. Baja el video con yt-dlp, extrae audio, transcribe con Whisper, saca frames y les hace OCR, y entrega un kit + borrador de manual. Usar cuando te pasan un link de video y piden un manual, apuntes, resumen o transcripción.
 ---
 
 # x-video-to-manual
@@ -11,35 +8,33 @@ date: "2026-09-26T20:35:26.774Z"
 Pipeline local (sin APIs pagas) para convertir un video en material de lectura:
 **video → audio → transcripción → slides (OCR) → manual**.
 
-Pensado para charlas técnicas, workshops y demos donde el valor está en lo que se
-dice **y** en las slides.
+Pensado para charlas técnicas, workshops y demos, donde el valor está en lo que se
+dice **y** en lo que se muestra.
 
 ## Cuándo usarla
 
-- Te pasan un link de un video de X/Twitter y piden "un manual", "apuntes", "resumen" o "transcripción".
+- Te pasan un link de un video de X/Twitter y piden un manual, apuntes, resumen o transcripción.
 - Tenés un `.mp4` local y querés estructura + texto.
 - Querés rescatar las slides de un video (texto en pantalla).
 
-## Requisitos (host)
+## Requisitos
 
-`yt-dlp`, `ffmpeg`/`ffprobe`, `whisper` (openai-whisper), `tesseract` (opcional pero recomendado),
-`python3`. Para PDF: un venv con el paquete `markdown` + `wkhtmltopdf` (o pandoc si está).
-
-Verificá rápido:
-
-```bash
-command -v yt-dlp ffmpeg whisper tesseract
-```
-
-## Pipeline (5 pasos)
-
-### 1. Correr el extractor
+`yt-dlp`, `ffmpeg`/`ffprobe`, `whisper` (openai-whisper), `python3`.
+`tesseract` es opcional pero es lo que rescata las slides.
+Para PDF: `markdown` (pip) + `wkhtmltopdf` o `pandoc`.
 
 ```bash
-scripts/x-video-to-manual.sh "<url-x-o-archivo>" --out ./xvm-out --model small --frames-every 20
+command -v yt-dlp ffmpeg whisper tesseract python3
 ```
 
-Deja en el kit:
+## Pipeline
+
+### 1. Extraer el kit
+
+```bash
+scripts/x-video-to-manual.sh "<url-x-o-archivo>" --out ./xvm-out --model small \
+    --vocab "Claude, Anthropic, MCP, harness, sandbox"
+```
 
 | Archivo | Contenido |
 |---|---|
@@ -50,58 +45,47 @@ Deja en el kit:
 | `slides-ocr.txt` | texto de las slides (tesseract) |
 | `meta.txt` | duración, resolución, fuente, fecha |
 
-### 2. Corregir la transcripción
+### 2. Corregir la transcripción (opt-in)
 
-Whisper mete errores sistemáticos de dominio. Pasá el diccionario:
+Sin `--fixes` el texto pasa intacto. Con el diccionario, corrige la jerga del dominio:
 
 ```bash
-scripts/normalize_transcript.py xvm-out/transcript.txt -o xvm-out/transcript.clean.txt --report
+scripts/normalize_transcript.py xvm-out/transcript.txt \
+    --fixes fixes/anthropic-agents.tsv -o xvm-out/transcript.clean.txt --report
 ```
+
+Editar `transcript.clean.txt` a mano es válido: `build_manual.py` lo respeta y no lo
+vuelve a tocar.
 
 ### 3. Armar el borrador
 
 ```bash
-scripts/build_manual.py xvm-out --title "Mi charla" --out manual-draft.md
+scripts/build_manual.py xvm-out --title "Mi charla" --fixes fixes/anthropic-agents.tsv
 ```
 
 ### 4. Redactar (esto lo hace el agente, no el script)
 
-Con el borrador + `slides-ocr.txt`, escribir el manual final:
-resumen ejecutivo, secciones temáticas con timestamps, diagramas reconstruidos,
-takeaways, recursos y **apéndice con la transcripción corregida**.
-Nunca presentar la transcripción cruda como definitiva: marcar `[?]` lo dudoso.
+Con el borrador + `slides-ocr.txt`, escribir el manual final: resumen ejecutivo,
+secciones temáticas con timestamps, diagramas reconstruidos, takeaways, recursos y
+**apéndice con la transcripción**. Marcar `[?]` lo dudoso; no presentar la
+transcripción cruda como definitiva.
 
-### 5. Exportar a PDF (opcional)
+## Gotchas
 
-```bash
-python3 -m venv /tmp/mdvenv && /tmp/mdvenv/bin/pip install -q markdown
-/tmp/mdvenv/bin/python -c "
-import markdown
-md=open('manual.md',encoding='utf-8').read()
-body=markdown.markdown(md, extensions=['tables','fenced_code','sane_lists'])
-open('_m.html','w',encoding='utf-8').write(f\"<html><head><meta charset='utf-8'></head><body>{body}</body></html>\")
-"
-wkhtmltopdf -q _m.html manual.pdf
-```
-
-## Gotchas (leer antes de correr)
-
-- **Sin GPU tarda.** Whisper `small` va a ~0.5x realtime en 2 vCPU: 12 min de audio ≈ 25 min de proceso.
-  Lanzarlo en background y seguir con otra cosa. `base` es ~4x más rápido pero comete más errores.
-- **Errores típicos de Whisper**: `agentic/agent` → *"Asian"*, `Claude` → *"Cloud"*,
-  `harness` → *"furnace"*, `MCP servers` → *"MCT servers"*, `Vault` → *"Waltz"*,
-  `checkpointing` → *"checkwining"*. Siempre normalizar (paso 2).
+- **Sin GPU es lento.** Whisper `small` ≈ 0.5x realtime en 2 vCPU (12 min de audio ≈ 25 min).
+  Correrlo en background. `base` es ~4x más rápido pero comete más errores.
+- **Whisper alucina homófonos**: `agentic` → *"Asian"*, `Claude` → *"Cloud"*,
+  `harness` → *"furnace"*, `MCP servers` → *"MCT servers"*. Corregir con el diccionario.
 - **Whisper no acepta `--language auto`**: omitir el flag = autodetección.
-- **Whisper nombra la salida por el input** (`audio.srt`). El script ya la renombra a `transcript.srt`.
-- **La tool `image` puede estar caída** (créditos Anthropic). Fallback para slides: **tesseract OCR**.
-  `--psm 3` para layouts de slide; frames a resolución nativa (no escalar) para que el OCR lea bien.
-- La tool `image` rechaza paths **fuera del workspace**: copiar frames adentro antes de analizarlos.
-- **Verificá el orador en la placa de título**, no en el post que compartió el video. Quien tuitea
-  un video no siempre es quien habla (caso real: el post era de Mo Elgaraihy y el orador Gagan Bhat).
-- Los slides suelen tener texto estilizado sobre imágenes: el OCR de un solo frame puede ser pobre.
-  Pedir varios frames (o subir el frame rate) mejora la cobertura.
+- **Whisper nombra la salida por el input** (`audio.srt`); el script la renombra.
+- **Whisper puede desobedecer `--initial_prompt`**: ayuda, no garantiza.
+- **Verificá el orador en la placa de título del video**, no en el post que lo compartió.
+  Quien tuitea un video no siempre es quien habla.
+- Los frames se sacan a resolución nativa: si los achicás, el OCR lee peor.
+- Los slides suelen tener texto estilizado sobre imágenes: un solo frame puede dar OCR pobre.
 
 ## Referencias
 
-- `references/whisper-fixes.md` — diccionario de correcciones y cómo extenderlo.
+- `references/whisper-fixes.md` — errores conocidos y cómo extender el diccionario.
 - `templates/manual-template.md` — estructura sugerida del manual final.
+- `fixes/anthropic-agents.tsv` — diccionario del dominio agentes/Anthropic.
