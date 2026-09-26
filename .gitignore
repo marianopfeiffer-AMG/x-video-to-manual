@@ -1,0 +1,6 @@
+# scratch
+xvm-out/
+*.wav
+*.srt
+frames/
+__pycache__/
