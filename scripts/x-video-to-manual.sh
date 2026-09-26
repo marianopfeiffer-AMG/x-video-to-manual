@@ -32,6 +32,7 @@ Salida (en DIR):
 
 Siguiente paso:
   scripts/normalize_transcript.py <DIR>/transcript.txt --fixes fixes/anthropic-agents.tsv -o <DIR>/transcript.clean.txt
+  scripts/align_slides.py <DIR>            # pega el relato a las slides → timeline.md
   scripts/build_manual.py <DIR> --title "..." --fixes fixes/anthropic-agents.tsv
 EOF
 }
@@ -100,6 +101,7 @@ ffprobe -v error -show_entries format=duration,size \
         "$VIDEO" > "$OUT/meta.txt"
 {
   echo "source=$SRC"; echo "fetched_utc=$(date -u +%FT%TZ)"
+  echo "frames_every=$FRAMES_EVERY"
 } >> "$OUT/meta.txt"
 
 # 3) Audio -----------------------------------------------------------------

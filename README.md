@@ -22,7 +22,8 @@ querés sacarle un documento útil — el texto, las slides y la estructura — 
 | 2 | `ffmpeg` | extrae audio mono 16 kHz + un frame cada N segundos |
 | 3 | `whisper` | transcribe el audio (local), sesgado con el vocabulario de las slides |
 | 4 | `tesseract` | OCR de los frames → texto de las slides |
-| 5 | agente/redactor | cruza transcript + slides y escribe el manual |
+| 5 | `align_slides.py` | pega cada tramo del relato a la slide que estaba en pantalla |
+| 6 | agente/redactor | cruza transcript + slides + timeline y escribe el manual |
 
 Los frames y el OCR corren **antes** que la transcripción: el texto de las slides alimenta
 el vocabulario que se le pasa a Whisper como `--initial_prompt`.
@@ -47,10 +48,13 @@ command -v yt-dlp ffmpeg whisper tesseract python3
 ./scripts/normalize_transcript.py xvm-out/transcript.txt \
     --fixes fixes/anthropic-agents.tsv -o xvm-out/transcript.clean.txt --report
 
-# 3) armar el borrador del manual
+# 3) pegar el relato a las slides
+./scripts/align_slides.py xvm-out
+
+# 4) armar el borrador del manual
 ./scripts/build_manual.py xvm-out --title "Mi charla" --fixes fixes/anthropic-agents.tsv
 
-# 4) redactar el manual final (lo hace el agente) y, si querés, exportar a PDF
+# 5) redactar el manual final (lo hace el agente) y, si querés, exportar a PDF
 ```
 
 Para bajar el ruido en la fuente, pasale a Whisper el vocabulario del video:
@@ -58,6 +62,34 @@ Para bajar el ruido en la fuente, pasale a Whisper el vocabulario del video:
 ```bash
 ./scripts/x-video-to-manual.sh <url> --vocab "Claude, Anthropic, MCP, harness, sandbox"
 ```
+
+## Línea de tiempo: relato ↔ slide
+
+El kit tiene la transcripción (con timestamps) y el OCR de las slides, pero separados. Falta
+lo obvio: **qué se veía mientras se decía cada cosa**.
+
+`align_slides.py` agrupa los frames que muestran la misma slide (una slide queda en pantalla
+muchos segundos → varios frames), arma la línea de tiempo y le cuelga a cada slide el relato
+que le corresponde:
+
+```bash
+scripts/align_slides.py xvm-out                 # → timeline.md + timeline.json
+scripts/align_slides.py xvm-out --thresh 0.5    # más agresivo juntando slides parecidas
+```
+
+Salida (ejemplo real, charla de 12 min, 36 frames → 9 slides):
+
+```
+## 3. [01:21–01:40] · slide `h_005.jpg`
+> 01 Messages API
+> The model is provided. Everything around it is yours to build.
+> Production infrastructure · Session management · Credentials
+
+- **[01:21]** … y lo que te daban eran tokens de entrada y tokens de salida.
+```
+
+Los frames sin texto útil se cuelgan de la slide anterior; si el primer frame trae poco
+texto (la placa de título) igual se conserva, porque ahí está el nombre de quien habla.
 
 ## Vocabulario: arreglarlo en el origen
 
@@ -103,6 +135,7 @@ sirve para dominios distintos.
 │   ├── x-video-to-manual.sh     # orquestador: video → kit
 │   ├── srt.py                   # parser de SRT (único, soporta CRLF/BOM)
 │   ├── build_vocab.py           # vocabulario para sesgar Whisper, desde el OCR
+│   ├── align_slides.py          # relato ↔ slide → timeline.md
 │   ├── normalize_transcript.py  # motor de correcciones (diccionario externo)
 │   └── build_manual.py          # kit → borrador de manual
 ├── fixes/

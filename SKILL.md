@@ -48,7 +48,7 @@ Eso reduce los homófonos en la fuente, antes de tener que parchearlos.
 | `frames/f_*.jpg` | un frame cada N segundos |
 | `slides-ocr.txt` | texto de las slides (tesseract) |
 | `vocab.txt` | vocabulario con el que se sesgó Whisper |
-| `meta.txt` | duración, resolución, fuente, fecha |
+| `meta.txt` | duración, resolución, fuente, fecha, intervalo de frames |
 
 ### 2. Corregir la transcripción (opt-in)
 
@@ -62,13 +62,24 @@ scripts/normalize_transcript.py xvm-out/transcript.txt \
 Editar `transcript.clean.txt` a mano es válido: `build_manual.py` lo respeta y no lo
 vuelve a tocar.
 
-### 3. Armar el borrador
+### 3. Pegar el relato a las slides
+
+```bash
+scripts/align_slides.py xvm-out        # → timeline.md + timeline.json
+```
+
+Agrupa los frames que muestran la misma slide y arma tramos `[inicio–fin] · slide` con el
+relato adentro. Sin esto, el manual tiene texto y slides, pero desconectados.
+
+### 4. Armar el borrador
 
 ```bash
 scripts/build_manual.py xvm-out --title "Mi charla" --fixes fixes/anthropic-agents.tsv
 ```
 
-### 4. Redactar (esto lo hace el agente, no el script)
+`build_manual.py` usa `timeline.md` si existe.
+
+### 5. Redactar (esto lo hace el agente, no el script)
 
 Con el borrador + `slides-ocr.txt`, escribir el manual final: resumen ejecutivo,
 secciones temáticas con timestamps, diagramas reconstruidos, takeaways, recursos y
@@ -89,6 +100,8 @@ transcripción cruda como definitiva.
 - **Verificá el orador en la placa de título del video**, no en el post que lo compartió.
   Quien tuitea un video no siempre es quien habla.
 - Los frames se sacan a resolución nativa: si los achicás, el OCR lee peor.
+- **`align_slides.py` necesita saber cada cuántos segundos sacaste los frames**
+  (`meta.txt` lo guarda). Si armaste el kit a mano, pasá `--frames-every`.
 - Los slides suelen tener texto estilizado sobre imágenes: un solo frame puede dar OCR pobre.
 
 ## Referencias

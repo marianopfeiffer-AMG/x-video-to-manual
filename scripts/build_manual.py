@@ -73,8 +73,15 @@ def main(argv=None):
     kit = pathlib.Path(a.kit)
     meta = _read(kit / 'meta.txt')
     ocr = _read(kit / 'slides-ocr.txt')
+    timeline = _read(kit / 'timeline.md')
     lines, origin = _transcript_lines(kit, a.fixes)
     transcript = '\n'.join(lines)
+
+    if timeline:
+        timeline_block = timeline.strip()
+    else:
+        timeline_block = ('TODO — correr `scripts/align_slides.py <kit>` para pegar cada '
+                          'tramo del relato a la slide que estaba en pantalla.')
 
     slides = [l for l in ocr.splitlines() if not l.startswith('=====') and len(l) > 3]
     if len(slides) > OCR_MAX_LINES:
@@ -101,6 +108,9 @@ def main(argv=None):
 
 ## TODO — Diagramas
 (Reconstruir los diagramas de las slides a partir del OCR y del relato.)
+
+## Línea de tiempo (slides + relato)
+{timeline_block}
 
 ## Apéndice A — Texto detectado en las slides (OCR)
 ```
