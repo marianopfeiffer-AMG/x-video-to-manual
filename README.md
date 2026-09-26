@@ -20,9 +20,12 @@ querés sacarle un documento útil — el texto, las slides y la estructura — 
 |---|---|---|
 | 1 | `yt-dlp` | baja el video de X (o copia uno local) |
 | 2 | `ffmpeg` | extrae audio mono 16 kHz + un frame cada N segundos |
-| 3 | `whisper` | transcribe el audio (local) |
+| 3 | `whisper` | transcribe el audio (local), sesgado con el vocabulario de las slides |
 | 4 | `tesseract` | OCR de los frames → texto de las slides |
 | 5 | agente/redactor | cruza transcript + slides y escribe el manual |
+
+Los frames y el OCR corren **antes** que la transcripción: el texto de las slides alimenta
+el vocabulario que se le pasa a Whisper como `--initial_prompt`.
 
 ## Requisitos
 
@@ -56,11 +59,33 @@ Para bajar el ruido en la fuente, pasale a Whisper el vocabulario del video:
 ./scripts/x-video-to-manual.sh <url> --vocab "Claude, Anthropic, MCP, harness, sandbox"
 ```
 
-## Correcciones de transcripción
+## Vocabulario: arreglarlo en el origen
 
 Whisper alucina homófonos en jerga técnica: `agentic` → *"Asian"*, `Claude` → *"Cloud"*,
-`harness` → *"furnace"*… El normalizador **no trae reglas hardcodeadas**: las lee de un
-TSV, así el mismo motor sirve para dominios distintos.
+`MCP` → *"MCT"*. Corregirlo después es parchear. La jugada buena es darle a Whisper el
+vocabulario correcto **antes**, con `--initial_prompt`.
+
+Las slides son una fuente perfecta: ya tienen escrito —bien escrito— el nombre de los
+productos y las siglas. El pipeline las lee primero y deriva el vocabulario solo:
+
+```bash
+scripts/build_vocab.py xvm-out/slides-ocr.txt                # lista de términos
+scripts/build_vocab.py xvm-out/slides-ocr.txt --json         # + conteos
+scripts/build_vocab.py xvm-out/slides-ocr.txt --min-count 2  # solo lo que repite
+```
+
+El kit guarda el vocabulario usado en `vocab.txt`, así podés inspeccionarlo. Con
+`--vocab "a, b, c"` agregás tus propios términos (van primero), y con `--no-auto-vocab`
+lo desactivás.
+
+> Ojo: el OCR también mete basura. Por eso el pipeline usa `--min-count 2` por defecto
+> para el vocabulario (los términos reales se repiten entre slides) y el prompt se
+> trunca cerca de los 224 tokens.
+
+## Correcciones de transcripción (lo que el vocabulario no atrapó)
+
+El normalizador **no trae reglas hardcodeadas**: las lee de un TSV, así el mismo motor
+sirve para dominios distintos.
 
 - **Sin `--fixes` no modifica nada.** Nada de reglas globales que rompan texto legítimo
   ("Google Cloud" ≠ "Google Claude").
@@ -77,6 +102,7 @@ TSV, así el mismo motor sirve para dominios distintos.
 ├── scripts/
 │   ├── x-video-to-manual.sh     # orquestador: video → kit
 │   ├── srt.py                   # parser de SRT (único, soporta CRLF/BOM)
+│   ├── build_vocab.py           # vocabulario para sesgar Whisper, desde el OCR
 │   ├── normalize_transcript.py  # motor de correcciones (diccionario externo)
 │   └── build_manual.py          # kit → borrador de manual
 ├── fixes/

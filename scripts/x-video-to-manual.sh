@@ -15,7 +15,8 @@ Opciones:
   --out DIR            directorio de salida (default: ./xvm-out)
   --model NOMBRE       modelo de Whisper (default: small)
   --lang CODIGO        idioma para Whisper (default: autodetectar)
-  --vocab "a, b, c"    vocabulario para sesgar Whisper (nombres propios, jerga)
+  --vocab "a, b, c"    términos extra para sesgar Whisper (se suman a los del OCR)
+  --no-auto-vocab      no derivar el vocabulario del OCR de las slides
   --frames-every N     un frame cada N segundos (default: 20)
   --no-ocr             no correr tesseract sobre los frames
 
@@ -26,6 +27,7 @@ Salida (en DIR):
   transcript.txt       transcripción aplanada [hh:mm:ss] texto
   frames/              frames cada N segundos (jpg)
   slides-ocr.txt       texto extraído de las slides con tesseract
+  vocab.txt            vocabulario usado para sesgar Whisper
   meta.txt             metadatos (duración, resolución, fuente, fecha)
 
 Siguiente paso:
@@ -35,7 +37,8 @@ EOF
 }
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SRC=""; OUT="./xvm-out"; MODEL="small"; WHISPER_LANG="auto"; VOCAB=""; FRAMES_EVERY=20; DO_OCR=1
+SRC=""; OUT="./xvm-out"; MODEL="small"; WHISPER_LANG="auto"; VOCAB=""
+FRAMES_EVERY=20; DO_OCR=1; AUTO_VOCAB=1
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -43,8 +46,9 @@ while [ $# -gt 0 ]; do
     --model) MODEL="$2"; shift 2;;
     --lang) WHISPER_LANG="$2"; shift 2;;
     --vocab) VOCAB="$2"; shift 2;;
+    --no-auto-vocab) AUTO_VOCAB=0; shift;;
     --frames-every) FRAMES_EVERY="$2"; shift 2;;
-    --no-ocr) DO_OCR=0; shift;;
+    --no-ocr) DO_OCR=0; AUTO_VOCAB=0; shift;;
     -h|--help) usage; exit 0;;
     -*) echo "opción desconocida: $1 (ver --help)" >&2; exit 2;;
     *) SRC="$1"; shift;;
@@ -66,10 +70,10 @@ VIDEO="$OUT/video.mp4"
 
 # 1) Obtener el video ------------------------------------------------------
 if [ -f "$SRC" ]; then
-  echo "[1/6] Copiando video local…"
+  echo "[1/7] Copiando video local…"
   cp "$SRC" "$VIDEO"
 else
-  echo "[1/6] Descargando de X con yt-dlp…"
+  echo "[1/7] Descargando de X con yt-dlp…"
   if ! yt-dlp -q --no-warnings -f "bv*+ba/b" --merge-output-format mp4 \
               -o "$OUT/dl.%(ext)s" "$SRC"; then
     cat >&2 <<'EOF'
@@ -90,7 +94,7 @@ EOF
 fi
 
 # 2) Metadatos -------------------------------------------------------------
-echo "[2/6] Leyendo metadatos…"
+echo "[2/7] Leyendo metadatos…"
 ffprobe -v error -show_entries format=duration,size \
         -show_entries stream=codec_type,width,height -of default=noprint_wrappers=1 \
         "$VIDEO" > "$OUT/meta.txt"
@@ -99,20 +103,11 @@ ffprobe -v error -show_entries format=duration,size \
 } >> "$OUT/meta.txt"
 
 # 3) Audio -----------------------------------------------------------------
-echo "[3/6] Extrayendo audio (mono 16 kHz)…"
+echo "[3/7] Extrayendo audio (mono 16 kHz)…"
 ffmpeg -y -v error -i "$VIDEO" -vn -ac 1 -ar 16000 -c:a pcm_s16le "$OUT/audio.wav"
 
-# 4) Transcripción ---------------------------------------------------------
-echo "[4/6] Transcribiendo con whisper ($MODEL)… (puede tardar: ~0.5x realtime sin GPU)"
-WHISPER_ARGS=(--model "$MODEL" --fp16 False --threads "$NPROC"
-              --output_format srt --output_dir "$OUT")
-[ "$WHISPER_LANG" != "auto" ] && WHISPER_ARGS+=(--language "$WHISPER_LANG")
-[ -n "$VOCAB" ] && WHISPER_ARGS+=(--initial_prompt "$VOCAB")
-whisper "$OUT/audio.wav" "${WHISPER_ARGS[@]}"
-if [ -f "$OUT/audio.srt" ]; then mv -f "$OUT/audio.srt" "$OUT/transcript.srt"; fi
-
-# 5) Frames + OCR de slides ------------------------------------------------
-echo "[5/6] Extrayendo un frame cada ${FRAMES_EVERY}s…"
+# 4) Frames + OCR (antes del ASR: el OCR alimenta el vocabulario) -----------
+echo "[4/7] Extrayendo un frame cada ${FRAMES_EVERY}s…"
 ffmpeg -y -v error -i "$VIDEO" -vf "fps=1/${FRAMES_EVERY}" -q:v 3 "$OUT/frames/f_%03d.jpg"
 if [ "$DO_OCR" = "1" ]; then
   if command -v tesseract >/dev/null; then
@@ -124,12 +119,41 @@ if [ "$DO_OCR" = "1" ]; then
       tesseract "$f" - --psm 3 2>/dev/null | sed '/^[[:space:]]*$/d' >> "$OUT/slides-ocr.txt"
     done
   else
-    echo "      aviso: tesseract no está instalado; salteo el OCR de slides" >&2
+    echo "      aviso: tesseract no está instalado; salteo el OCR" >&2
+    AUTO_VOCAB=0
   fi
 fi
 
-# 6) Transcript aplanado ---------------------------------------------------
-echo "[6/6] Aplanando transcript…"
+# 5) Vocabulario (sesga a Whisper con lo que dicen las slides) --------------
+PROMPT="$VOCAB"
+VB_ARGS=()
+[ -n "$VOCAB" ] && VB_ARGS+=(--extra "$VOCAB")
+if [ "$AUTO_VOCAB" = "1" ] && [ -s "$OUT/slides-ocr.txt" ]; then
+  echo "[5/7] Derivando vocabulario del OCR…"
+  if AUTO_TERMS="$(python3 "$SCRIPT_DIR/build_vocab.py" "$OUT/slides-ocr.txt" --min-count 2 \
+                     ${VB_ARGS[@]+"${VB_ARGS[@]}"} 2>/dev/null)"; then
+    PROMPT="$AUTO_TERMS"
+    printf '%s\n' "$PROMPT" > "$OUT/vocab.txt"
+    echo "      ${#PROMPT} chars: $(printf '%.100s' "$PROMPT")…"
+  else
+    echo "      aviso: build_vocab.py falló; sigo con el --vocab manual" >&2
+  fi
+else
+  echo "[5/7] Sin vocabulario automático (--no-auto-vocab sin OCR, o --no-ocr)."
+  [ -n "$PROMPT" ] && printf '%s\n' "$PROMPT" > "$OUT/vocab.txt"
+fi
+
+# 6) Transcripción ---------------------------------------------------------
+echo "[6/7] Transcribiendo con whisper ($MODEL)… (puede tardar: ~0.5x realtime sin GPU)"
+WHISPER_ARGS=(--model "$MODEL" --fp16 False --threads "$NPROC"
+              --output_format srt --output_dir "$OUT")
+[ "$WHISPER_LANG" != "auto" ] && WHISPER_ARGS+=(--language "$WHISPER_LANG")
+[ -n "$PROMPT" ] && WHISPER_ARGS+=(--initial_prompt "$PROMPT")
+whisper "$OUT/audio.wav" "${WHISPER_ARGS[@]}"
+if [ -f "$OUT/audio.srt" ]; then mv -f "$OUT/audio.srt" "$OUT/transcript.srt"; fi
+
+# 7) Transcript aplanado ---------------------------------------------------
+echo "[7/7] Aplanando transcript…"
 python3 "$SCRIPT_DIR/srt.py" kit "$OUT"
 
 echo

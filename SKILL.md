@@ -33,8 +33,12 @@ command -v yt-dlp ffmpeg whisper tesseract python3
 
 ```bash
 scripts/x-video-to-manual.sh "<url-x-o-archivo>" --out ./xvm-out --model small \
-    --vocab "Claude, Anthropic, MCP, harness, sandbox"
+    --vocab "Claude, Anthropic, MCP"
 ```
+
+Los frames y el OCR corren **antes** que la transcripción: el script deriva el vocabulario
+del texto de las slides (`build_vocab.py`) y se lo pasa a Whisper como `--initial_prompt`.
+Eso reduce los homófonos en la fuente, antes de tener que parchearlos.
 
 | Archivo | Contenido |
 |---|---|
@@ -43,6 +47,7 @@ scripts/x-video-to-manual.sh "<url-x-o-archivo>" --out ./xvm-out --model small \
 | `transcript.srt` / `transcript.txt` | transcripción con y sin timestamps |
 | `frames/f_*.jpg` | un frame cada N segundos |
 | `slides-ocr.txt` | texto de las slides (tesseract) |
+| `vocab.txt` | vocabulario con el que se sesgó Whisper |
 | `meta.txt` | duración, resolución, fuente, fecha |
 
 ### 2. Corregir la transcripción (opt-in)
@@ -77,6 +82,8 @@ transcripción cruda como definitiva.
 - **Whisper alucina homófonos**: `agentic` → *"Asian"*, `Claude` → *"Cloud"*,
   `harness` → *"furnace"*, `MCP servers` → *"MCT servers"*. Corregir con el diccionario.
 - **Whisper no acepta `--language auto`**: omitir el flag = autodetección.
+- **El vocabulario automático puede traer basura** (el OCR no es perfecto). Se usa
+  `--min-count 2` y aun así conviene mirar `vocab.txt`; `--no-auto-vocab` lo desactiva.
 - **Whisper nombra la salida por el input** (`audio.srt`); el script la renombra.
 - **Whisper puede desobedecer `--initial_prompt`**: ayuda, no garantiza.
 - **Verificá el orador en la placa de título del video**, no en el post que lo compartió.

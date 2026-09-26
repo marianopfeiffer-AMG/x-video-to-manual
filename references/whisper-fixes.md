@@ -43,11 +43,13 @@ El motor (`scripts/normalize_transcript.py`) **no trae reglas hardcodeadas**: le
 
 ## Mejor aún: arreglarlo en el origen
 
-Antes de parchear, sesgá a Whisper con el vocabulario correcto:
+Antes de parchear, sesgá a Whisper con el vocabulario correcto. El pipeline lo deriva solo
+del OCR de las slides (`scripts/build_vocab.py`) y lo pasa como `--initial_prompt`:
 
 ```bash
-scripts/x-video-to-manual.sh <url> --vocab "Claude, Anthropic, MCP, harness, sandbox"
+scripts/x-video-to-manual.sh <url> --vocab "Claude, Anthropic, MCP"   # términos extra
+scripts/build_vocab.py xvm-out/slides-ocr.txt --min-count 2          # a mano, si querés
 ```
 
-Reduce el error en la fuente. No lo elimina: `--initial_prompt` es una sugerencia, no
-una orden.
+Reduce el error en la fuente. No lo elimina: `--initial_prompt` es una sugerencia, no una
+orden, y el OCR también mete basura (por eso `--min-count 2`). Mirá `vocab.txt` y ajustá.
