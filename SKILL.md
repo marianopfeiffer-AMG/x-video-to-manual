@@ -36,6 +36,11 @@ scripts/x-video-to-manual.sh "<url-x-o-archivo>" --out ./xvm-out --model small \
     --vocab "Claude, Anthropic, MCP"
 ```
 
+**Es reanudable.** Si el proceso se corta (Whisper sin GPU tarda ~0.5x realtime), volver a
+correrlo **no** reprocesa: cada etapa se saltea si sus entradas no cambiaron. `--force`
+ignora la caché y rehace todo; `scripts/stages.py show --state <kit>/.stages.json` muestra
+qué está cacheado.
+
 Los frames y el OCR corren **antes** que la transcripción: el script deriva el vocabulario
 del texto de las slides (`build_vocab.py`) y se lo pasa a Whisper como `--initial_prompt`.
 Eso reduce los homófonos en la fuente, antes de tener que parchearlos.
@@ -49,6 +54,7 @@ Eso reduce los homófonos en la fuente, antes de tener que parchearlos.
 | `slides-ocr.txt` | texto de las slides (tesseract) |
 | `vocab.txt` | vocabulario con el que se sesgó Whisper |
 | `meta.txt` | duración, resolución, fuente, fecha, intervalo de frames |
+| `.stages.json` | caché de etapas (permite reanudar) |
 
 ### 2. Corregir la transcripción (opt-in)
 
@@ -89,7 +95,8 @@ transcripción cruda como definitiva.
 ## Gotchas
 
 - **Sin GPU es lento.** Whisper `small` ≈ 0.5x realtime en 2 vCPU (12 min de audio ≈ 25 min).
-  Correrlo en background. `base` es ~4x más rápido pero comete más errores.
+  Correrlo en background. `base` es ~4x más rápido pero comete más errores. Si se corta, no
+  pierde nada: volvé a correrlo y reanuda donde quedó (`--force` para empezar de cero).
 - **Whisper alucina homófonos**: `agentic` → *"Asian"*, `Claude` → *"Cloud"*,
   `harness` → *"furnace"*, `MCP servers` → *"MCT servers"*. Corregir con el diccionario.
 - **Whisper no acepta `--language auto`**: omitir el flag = autodetección.

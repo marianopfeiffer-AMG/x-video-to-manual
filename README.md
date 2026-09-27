@@ -63,6 +63,37 @@ Para bajar el ruido en la fuente, pasale a Whisper el vocabulario del video:
 ./scripts/x-video-to-manual.sh <url> --vocab "Claude, Anthropic, MCP, harness, sandbox"
 ```
 
+## Reanudar sin reprocesar
+
+Whisper sin GPU corre a ~0.5x realtime: un video de 20 minutos tarda ~40. Si el proceso se
+corta en el minuto 30, perder todo es un chiste pesado. El pipeline guarda una **firma de
+cada etapa** en `xvm-out/.stages.json` y la saltea si nada cambió.
+
+```bash
+# corre completo la primera vez
+./scripts/x-video-to-manual.sh "<url>" --out ./xvm-out
+
+# se cortó / lo volvés a correr: reusa lo que ya está hecho
+./scripts/x-video-to-manual.sh "<url>" --out ./xvm-out
+
+# para forzar de cero
+./scripts/x-video-to-manual.sh "<url>" --out ./xvm-out --force
+
+./scripts/stages.py show --state xvm-out/.stages.json   # qué está cacheado
+```
+
+La firma se calcula con los parámetros **y** los archivos de entrada, así que reanudar no
+es adivinar:
+
+- Cambiás `--model` → sólo se rehace la transcripción.
+- Cambiás `--frames-every` → se rehacen frames, OCR, vocabulario y transcripción.
+- Borrás `transcript.srt` a mano → se rehace solo esa etapa (la salida faltante invalida la caché).
+
+Medido sobre un clip real, mismas condiciones: **25 s la primera corrida → 1 s la segunda**.
+
+> Los archivos grandes de entrada (video, audio) no se hashean enteros: se muestrean los
+> primeros y últimos 64 KB más el tamaño. Detecta un cambio real sin leer 2 GB dos veces.
+
 ## Línea de tiempo: relato ↔ slide
 
 El kit tiene la transcripción (con timestamps) y el OCR de las slides, pero separados. Falta
@@ -132,7 +163,8 @@ sirve para dominios distintos.
 .
 ├── SKILL.md                     # especificación de la skill (AgentSkills)
 ├── scripts/
-│   ├── x-video-to-manual.sh     # orquestador: video → kit
+│   ├── x-video-to-manual.sh     # orquestador: video → kit (reanudable)
+│   ├── stages.py                # caché de etapas (firmas de entrada → salidas)
 │   ├── srt.py                   # parser de SRT (único, soporta CRLF/BOM)
 │   ├── build_vocab.py           # vocabulario para sesgar Whisper, desde el OCR
 │   ├── align_slides.py          # relato ↔ slide → timeline.md
@@ -164,6 +196,9 @@ pytest -q
 - **Verificá el orador** en la placa de título del video, no en el post que lo compartió.
   Quien tuitea un video no siempre es quien habla.
 - Los frames se sacan a resolución nativa: si los achicás, el OCR lee peor.
+- **Reanudar es automático.** Si tenés dudas de si la caché te está mintiendo, mirá
+  `stages.py show` o corré con `--force`. Nunca vas a quedarte con una salida vieja por
+  accidente: cualquier cambio en un parámetro o en una entrada invalida la etapa.
 - Si tenés un modelo de visión disponible, usalo para describir los diagramas; si no,
   el OCR de `tesseract` cubre el texto de las slides.
 
