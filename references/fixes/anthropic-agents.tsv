@@ -28,3 +28,7 @@ grab, glob	grep, glob	herramientas
 furnace	harness	jerga del dominio	50
 MCT	MCP	protocolo	50
 (?<!Google )\bCloud\b(?!\s+(?:Run|Storage|SQL|Spanner|Functions|Build|CDN|Armor|DNS|NAT|Logging|Monitoring|Platform|BigQuery|Firestore|Composer|Scheduler|Tasks|Endpoints|Deploy|Source|Shell|Vision|Translation|Text-to-Speech|Speech-to-Text))	Claude	modelo (excepto "Google Cloud …")	10
+Claude Côde	Claude Code	producto Anthropic (acento espurio)
+Cloud Côde	Claude Code	producto Anthropic (acento espurio)
+Claud Md	CLAUDE.md	archivo de instrucciones
+M dashes	em dashes	tipografía
