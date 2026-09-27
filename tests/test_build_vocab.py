@@ -45,3 +45,30 @@ def test_respeta_max_chars():
 def test_prompt_es_la_lista_unida():
     terms, _ = build(OCR, extra=['X'])
     assert ', '.join(terms).startswith('X, ')
+
+
+def test_descarta_concatenaciones_largas_del_ocr():
+    """El OCR a baja resolución pega palabras. Eso no puede ir al prompt de Whisper."""
+    ocr = ("===== f_001.jpg =====\n"
+           "Intelligencealonedoesn really work.\n"
+           "Intelligencealonedoesn again.\n"
+           "Jong-runningagentsin production today.\n"
+           "Jong-runningagentsin again.\n")
+    terms, _ = build(ocr, min_count=2)
+    assert 'Intelligencealonedoesn' not in terms
+    assert 'Jong-runningagentsin' not in terms
+
+
+def test_conserva_marcas_largas_con_senal_interna():
+    """Una marca larga con mayúscula interna o dígitos sí sirve como vocabulario."""
+    ocr = ("===== f_001.jpg =====\n"
+           "BigQueryAnalytics and BigQueryAnalytics again.\n"
+           "GPT4Tokenizer GPT4Tokenizer GPT4Tokenizer\n")
+    terms, _ = build(ocr)
+    assert 'BigQueryAnalytics' in terms
+    assert 'GPT4Tokenizer' in terms
+
+
+def test_no_rompe_palabras_normales_largas():
+    terms, _ = build("===== f_001.jpg =====\nwe value Observability and Observability matters\n")
+    assert 'Observability' in terms

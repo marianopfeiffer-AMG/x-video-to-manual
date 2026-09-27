@@ -47,6 +47,34 @@ def iter_tokens(text: str):
         yield tok, sent_init
 
 
+MAX_PLAIN_LEN = 18
+_INTERNAL_SIGNAL = re.compile(r'[A-Z0-9]')
+
+
+def interesting(tok, n, mid):
+    """¿Este token merece entrar al vocabulario de Whisper?
+
+    Señales buenas: sigla corta (MCP), CamelCase (BigQuery), algo con dígitos, o una
+    palabra capitalizada en medio de una oración (nombre propio).
+
+    Señal mala: una tirada larga sin mayúscula interna ni dígitos. Casi siempre es OCR
+    que pegó dos palabras ("Intelligencealonedoesn", "Jong-runningagentsin") porque la
+    slide tenía el texto apretado o la resolución era baja. Meter eso en el prompt de
+    Whisper es peor que no sesgarlo: le sugiere exactamente el ruido que queríamos evitar.
+    """
+    if tok.isalpha() and tok.isupper():
+        return 2 <= len(tok) <= 6        # MCP, SDK, API… pero no texto en mayúsculas
+    if any(c.isupper() for c in tok[1:]):
+        return True                       # BigQuery, NanoBanana
+    if any(c.isdigit() for c in tok):
+        return True
+    if len(tok) > MAX_PLAIN_LEN and not _INTERNAL_SIGNAL.search(tok[1:]):
+        return False
+    if mid > 0:
+        return any(c in 'aeiouAEIOU' for c in tok)
+    return False
+
+
 def build(text: str, extra=(), min_count: int = 1, max_chars: int = 900):
     """Extrae el vocabulario y devuelve (terminos, conteos)."""
     # Los headers "===== f_001.jpg =====" del kit no aportan vocabulario.
@@ -63,19 +91,6 @@ def build(text: str, extra=(), min_count: int = 1, max_chars: int = 900):
         # mid = apariciones capitalizadas en MEDIO de una oración (nombre propio).
         mid += 1 if (not sent_init and tok[0].isupper()) else 0
         counts[tok] = (n + 1, mid)
-
-    def interesting(tok, n, mid):
-        # Siglas cortas, CamelCase, tokens con dígitos, o cualquier cosa capitalizada
-        # en medio de una oración (señal fuerte de nombre propio / jerga).
-        if tok.isalpha() and tok.isupper():
-            return 2 <= len(tok) <= 6        # MCP, SDK, API… pero no texto en mayúsculas
-        if any(c.isupper() for c in tok[1:]):
-            return True                       # BigQuery, NanoBanana
-        if any(c.isdigit() for c in tok):
-            return True
-        if mid > 0:
-            return any(c in 'aeiouAEIOU' for c in tok)
-        return False
 
     cands = [(tok, n, mid) for tok, (n, mid) in counts.items()
              if n >= min_count and interesting(tok, n, mid)]

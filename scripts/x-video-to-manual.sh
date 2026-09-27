@@ -22,6 +22,7 @@ Opciones:
   --no-auto-vocab      no derivar el vocabulario del OCR de las slides
   --frames-every N     un frame cada N segundos (default: 20)
   --no-ocr             no correr tesseract sobre los frames
+  --ocr-scale N|auto   upscale de los frames antes del OCR (default: auto)
   --force              rehacer todo, ignorando la caché de etapas
 
 Salida (en DIR):
@@ -44,7 +45,7 @@ EOF
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC=""; OUT="./xvm-out"; MODEL="small"; WHISPER_LANG="auto"; VOCAB=""
-FRAMES_EVERY=20; DO_OCR=1; AUTO_VOCAB=1; FORCE=0
+FRAMES_EVERY=20; DO_OCR=1; AUTO_VOCAB=1; FORCE=0; OCR_SCALE="auto"; WIDTH=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -55,6 +56,7 @@ while [ $# -gt 0 ]; do
     --no-auto-vocab) AUTO_VOCAB=0; shift;;
     --frames-every) FRAMES_EVERY="$2"; shift 2;;
     --no-ocr) DO_OCR=0; AUTO_VOCAB=0; shift;;
+    --ocr-scale) OCR_SCALE="$2"; shift 2;;
     --force) FORCE=1; shift;;
     -h|--help) usage; exit 0;;
     -*) echo "opción desconocida: $1 (ver --help)" >&2; exit 2;;
@@ -64,6 +66,11 @@ done
 
 [ -n "$SRC" ] || { echo "ERROR: falta <url | archivo> (ver --help)" >&2; exit 1; }
 case "$FRAMES_EVERY" in ''|*[!0-9]*) echo "ERROR: --frames-every debe ser un entero" >&2; exit 2;; esac
+case "$OCR_SCALE" in
+  auto) ;;
+  ''|*[!0-9]*) echo "ERROR: --ocr-scale debe ser 'auto' o un entero" >&2; exit 2;;
+esac
+case "$OCR_SCALE" in *[!0]*) ;; *) OCR_SCALE=1;; esac
 
 for tool in yt-dlp ffmpeg ffprobe whisper python3; do
   command -v "$tool" >/dev/null || { echo "ERROR: falta '$tool'" >&2; exit 1; }
@@ -143,6 +150,19 @@ ffprobe -v error -show_entries format=duration,size \
   echo "frames_every=$FRAMES_EVERY"
 } >> "$OUT/meta.txt"
 
+# Upscale para el OCR: a 360p tesseract pega las palabras entre sí ("CLAUDE.md" →
+# "CLAWE.ed"), y ese ruido después envenena el vocabulario de Whisper.
+if [ "$DO_OCR" = "1" ] && [ "$OCR_SCALE" = "auto" ]; then
+  WIDTH="$(awk -F= '/^width=/{print $2; exit}' "$OUT/meta.txt")"
+  if [ -n "${WIDTH:-}" ] && [ "$WIDTH" -gt 0 ] && [ "$WIDTH" -lt 1600 ]; then
+    OCR_SCALE=$(( (1600 + WIDTH - 1) / WIDTH ))
+    [ "$OCR_SCALE" -gt 3 ] && OCR_SCALE=3
+  else
+    OCR_SCALE=1
+  fi
+  echo "      fuente ${WIDTH:-?}px → OCR a x${OCR_SCALE}"
+fi
+
 # 3) Audio -----------------------------------------------------------------
 S_AUDIO="$(stage_sig --param src=audio --file "$VIDEO")"
 if cached audio "$S_AUDIO" && [ -s "$OUT/audio.wav" ]; then
@@ -167,17 +187,25 @@ fi
 if [ "$DO_OCR" = "1" ]; then
   if command -v tesseract >/dev/null; then
     TESS_VER="$(tesseract --version 2>/dev/null | head -n1 || true)"
-    S_OCR="$(stage_sig --param ocr="$TESS_VER" --file "$OUT/frames")"
+    S_OCR="$(stage_sig --param ocr="$TESS_VER" --param scale="$OCR_SCALE" --file "$OUT/frames")"
     if cached ocr "$S_OCR" && [ -s "$OUT/slides-ocr.txt" ]; then
       echo "      OCR en caché"
     else
-      echo "      OCR de frames con tesseract…"
+      echo "      OCR de frames con tesseract (x${OCR_SCALE})…"
       : > "$OUT/slides-ocr.txt"
+      TMP_OCR="$OUT/.ocr-tmp.png"
       for f in "$OUT"/frames/f_*.jpg; do
         [ -e "$f" ] || continue
         printf '===== %s =====\n' "$(basename "$f")" >> "$OUT/slides-ocr.txt"
-        tesseract "$f" - --psm 3 2>/dev/null | sed '/^[[:space:]]*$/d' >> "$OUT/slides-ocr.txt"
+        if [ "$OCR_SCALE" -gt 1 ]; then
+          ffmpeg -y -v error -i "$f" -vf "scale=iw*${OCR_SCALE}:ih*${OCR_SCALE}:flags=lanczos" \
+                 "$TMP_OCR" 2>/dev/null || cp "$f" "$TMP_OCR"
+          tesseract "$TMP_OCR" - --psm 3 2>/dev/null | sed '/^[[:space:]]*$/d' >> "$OUT/slides-ocr.txt"
+        else
+          tesseract "$f" - --psm 3 2>/dev/null | sed '/^[[:space:]]*$/d' >> "$OUT/slides-ocr.txt"
+        fi
       done
+      rm -f "$TMP_OCR"
       mark ocr "$S_OCR" --output "$OUT/slides-ocr.txt"
     fi
   else
