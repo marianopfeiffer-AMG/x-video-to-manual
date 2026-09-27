@@ -36,7 +36,8 @@ scripts/x-video-to-manual.sh "<url-x-o-archivo>" --out ./xvm-out --model small \
     --vocab "Claude, Anthropic, MCP"
 ```
 
-**Es reanudable.** Si el proceso se corta (Whisper sin GPU tarda ~0.5x realtime), volver a
+**Es reanudable.** Si el proceso se corta (Whisper sin GPU tarda ~1,8× la duración del
+audio), volver a
 correrlo **no** reprocesa: cada etapa se saltea si sus entradas no cambiaron. `--force`
 ignora la caché y rehace todo; `scripts/stages.py show --state <kit>/.stages.json` muestra
 qué está cacheado.
@@ -99,9 +100,14 @@ transcripción cruda como definitiva.
 
 ## Gotchas
 
-- **Sin GPU es lento.** Whisper `small` ≈ 0.5x realtime en 2 vCPU (12 min de audio ≈ 25 min).
-  Correrlo en background. `base` es ~4x más rápido pero comete más errores. Si se corta, no
+- **Sin GPU es lento.** Whisper `small` ≈ **1,8× la duración del audio** en 2 vCPU
+  (medido: 31 min de audio ≈ 57 min). Correrlo en background. `base` es ~4× más rápido pero
+  comete más errores. Si se corta, no
   pierde nada: volvé a correrlo y reanuda donde quedó (`--force` para empezar de cero).
+- **La resolución de origen es un techo y rompe el OCR.** X puede ofrecer solo 640×360
+  (`yt-dlp -F` lo confirma). Ahí tesseract pega las palabras (`CLAUDE.md` → `CLAWE.ed`) y el
+  ruido **envenena el vocabulario** que va al prompt de Whisper. El script escala los frames
+  a ~1600px antes del OCR (`--ocr-scale auto`, x3 de tope).
 - **Whisper alucina homófonos**: `agentic` → *"Asian"*, `Claude` → *"Cloud"*,
   `harness` → *"furnace"*, `MCP servers` → *"MCT servers"*. Corregir con el diccionario.
 - **Whisper no acepta `--language auto`**: omitir el flag = autodetección.

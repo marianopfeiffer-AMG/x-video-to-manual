@@ -65,7 +65,8 @@ Para bajar el ruido en la fuente, pasale a Whisper el vocabulario del video:
 
 ## Reanudar sin reprocesar
 
-Whisper sin GPU corre a ~0.5x realtime: un video de 20 minutos tarda ~40. Si el proceso se
+Whisper sin GPU es lento: `small` tarda ~1,8× la duración del audio (medido: 31 min de
+audio → 57 min en 2 vCPU). Si el proceso se
 corta en el minuto 30, perder todo es un chiste pesado. El pipeline guarda una **firma de
 cada etapa** en `xvm-out/.stages.json` y la saltea si nada cambió.
 
@@ -208,7 +209,13 @@ pytest -q
 
 ## Notas / gotchas
 
-- **Sin GPU es lento**: Whisper `small` ≈ 0.5x realtime en 2 vCPU (12 min de audio ≈ 25 min).
+- **Sin GPU es lento**: Whisper `small` ≈ **1,8× la duración del audio** en 2 vCPU
+  (medido: 31 min → 57 min). `base` es ~4× más rápido pero comete más errores.
+- **La resolución de origen es un techo.** X puede ofrecer solo 640×360 para un post (no es
+  un bug de descarga: `yt-dlp -F` lo confirma). A esa resolución tesseract pega las palabras
+  (`CLAUDE.md` → `CLAWE.ed`) **y ese ruido envenena el vocabulario** que se le pasa a Whisper.
+  El pipeline lo detecta y escala los frames a ~1600px antes del OCR (`--ocr-scale auto`,
+  x3 como máximo); en HD queda x1.
   `base` es ~4x más rápido pero comete más errores.
 - **Verificá el orador** en la placa de título del video, no en el post que lo compartió.
   Quien tuitea un video no siempre es quien habla.
