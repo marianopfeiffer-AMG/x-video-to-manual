@@ -99,14 +99,31 @@ Medido sobre un clip real, mismas condiciones: **25 s la primera corrida → 1 s
 El kit tiene la transcripción (con timestamps) y el OCR de las slides, pero separados. Falta
 lo obvio: **qué se veía mientras se decía cada cosa**.
 
-`align_slides.py` agrupa los frames que muestran la misma slide (una slide queda en pantalla
-muchos segundos → varios frames), arma la línea de tiempo y le cuelga a cada slide el relato
-que le corresponde:
+`align_slides.py` agrupa los frames que muestran la misma slide y le cuelga a cada una el
+relato que le corresponde:
 
 ```bash
 scripts/align_slides.py xvm-out                 # → timeline.md + timeline.json
-scripts/align_slides.py xvm-out --thresh 0.5    # más agresivo juntando slides parecidas
+scripts/align_slides.py xvm-out --visual-thresh 0.05   # más exigente agrupando
+scripts/align_slides.py xvm-out --group-by text        # si no tenés ffmpeg
 ```
+
+**Agrupa por imagen, no por texto.** Comparar las palabras del OCR parece lo natural, pero
+se rompe con OCR sucio: a 360p el OCR devuelve basura distinta en cada frame, el umbral de
+similitud nunca se alcanza y cada frame termina siendo una "slide". Medido en un video real
+de 30 minutos:
+
+| Señal | Resultado |
+|---|---|
+| Texto (Jaccard) | 94 frames → **79 slides** ❌ |
+| Imagen (16×16 gris) | 94 frames → **25 slides** ✅ |
+
+La señal visual además separa limpio: misma slide ≤ 0,05 de diferencia media entre frames;
+distinta slide ≥ 0,14. El umbral por defecto es 0,08, en el medio del hueco.
+
+Compara cada frame con el anterior, así que una variación chica (el orador moviéndose, una
+animación) no parte la slide en dos. Si no hay ffmpeg o los frames no están, cae solo al
+método por texto.
 
 Salida (ejemplo real, charla de 12 min, 36 frames → 9 slides):
 

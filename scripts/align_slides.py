@@ -4,18 +4,26 @@
 El kit ya tiene las dos mitades por separado: la transcripción (con timestamps) y el OCR de
 los frames (cada ~N segundos). Falta lo obvio: **qué se veía mientras se decía cada cosa**.
 
-Esto agrupa los frames que muestran la misma slide (son muchos, la slide queda en pantalla),
-arma la línea de tiempo de slides y le cuelga a cada una el relato que le corresponde.
+Agrupa los frames que muestran la misma slide (la slide queda en pantalla muchos segundos),
+arma la línea de tiempo y le cuelga a cada una el relato que le corresponde.
+
+El agrupamiento por defecto es **visual**: compara los frames entre sí, no su texto.
+Agrupar por texto (Jaccard sobre las palabras del OCR) suena bien pero se rompe con OCR
+sucio: a 360p el OCR devuelve basura distinta en cada frame, no se alcanza el umbral y cada
+frame termina siendo una "slide". Medido en un video real de 30 min: por texto 94 frames →
+79 slides; por imagen → 25. La señal visual está separada de forma limpia (misma slide
+≤ 0,05 de diferencia; distinta, ≥ 0,14).
 
 Uso:
     align_slides.py KIT                       # escribe KIT/timeline.md y timeline.json
-    align_slides.py KIT --thresh 0.5          # más agresivo juntando slides parecidas
-    align_slides.py KIT --frames-every 10     # si meta.txt no lo tiene
+    align_slides.py KIT --group-by text       # agrupar por texto (si no hay ffmpeg)
+    align_slides.py KIT --visual-thresh 0.05  # más exigente agrupando slides
 """
 import argparse
 import json
 import pathlib
 import re
+import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -24,6 +32,11 @@ import srt  # noqa: E402
 HEADER = re.compile(r'^=+\s*(\S+)\s*=+$')
 WORD = re.compile(r'[A-Za-z0-9]{3,}')
 TS_PREFIX = re.compile(r'^\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]\s*(.*)$')
+NUMBER = re.compile(r'(\d+)')
+
+SIG_SIDE = 16                 # firma visual: 16x16 en escala de grises
+SIG_BYTES = SIG_SIDE * SIG_SIDE
+VISUAL_THRESH = 0.08          # diferencia media normalizada para separar dos slides
 
 
 def hhmmss(sec: float) -> str:
@@ -65,8 +78,79 @@ def jaccard(a, b) -> float:
 
 
 def frame_index(name: str):
-    m = re.search(r'(\d+)', name)
+    m = NUMBER.search(name)
     return int(m.group(1)) if m else None
+
+
+def avg_abs_diff(a, b) -> float:
+    """Diferencia media normalizada (0 = idénticos, 1 = opuestos) entre dos firmas."""
+    if not a or not b or len(a) != len(b):
+        return 1.0
+    return sum(abs(x - y) for x, y in zip(a, b)) / (len(a) * 255.0)
+
+
+def visual_signatures(frames_dir: pathlib.Path):
+    """Firma visual de cada frame (16x16 gris), en orden numérico. `None` si no se puede.
+
+    Una sola llamada a ffmpeg sobre la secuencia de imágenes: barato y sin dependencias
+    nuevas (ffmpeg ya es requisito del pipeline).
+    """
+    if not frames_dir.is_dir():
+        return None, None
+    files = sorted((p for p in frames_dir.glob('f_*.jpg')),
+                   key=lambda p: frame_index(p.name) or 0)
+    if len(files) < 2:
+        return None, None
+    parts = [NUMBER.search(p.name) for p in files]
+    nums = [int(m.group(1)) for m in parts if m]
+    pads = {len(m.group(1)) for m in parts if m}
+    if len(nums) != len(files) or len(pads) != 1:
+        return None, None                      # numeración heterogénea: no arriesgo desalinear
+    if not all(b - a == 1 for a, b in zip(nums, nums[1:])):
+        return None, None                      # huecos: ffmpeg leería de menos y desalinearía
+    width = pads.pop()                         # el ancho real del nombre, no el del índice
+    pattern = str(frames_dir / f'f_%0{width}d.jpg')
+    cmd = ['ffmpeg', '-v', 'error', '-i', pattern,
+           '-vf', f'scale={SIG_SIDE}:{SIG_SIDE}:flags=area,format=gray',
+           '-f', 'rawvideo', '-pix_fmt', 'gray', '-']
+    try:
+        raw = subprocess.run(cmd, capture_output=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError) as e:
+        sys.stderr.write(f"aviso: no pude leer los frames con ffmpeg ({e}); "
+                         f"agrupo por texto\n")
+        return None, None
+    n = len(raw) // SIG_BYTES
+    if n != len(files):
+        sys.stderr.write(f"aviso: ffmpeg devolvió {n} frames, esperaba {len(files)}; "
+                         f"agrupo por texto\n")
+        return None, None
+    return {nums[i]: raw[i * SIG_BYTES:(i + 1) * SIG_BYTES] for i in range(n)}, nums
+
+
+def group_by_visual(frames, sigs, every: int, thresh: float = VISUAL_THRESH):
+    """Agrupa frames consecutivos que muestran la misma slide (según la imagen).
+
+    Compara cada frame con el *anterior*: es lo que se midió, y tolera que la slide
+tenga un elemento que se mueve (el orador, una animación) sin partir el grupo en dos.
+    """
+    slides = []
+    prev = None
+    for name, text in frames:
+        idx = frame_index(name)
+        t = (idx - 1) * every if idx else 0
+        sig = sigs.get(idx) if idx is not None else None
+        same = (slides and prev is not None and sig is not None
+                and avg_abs_diff(sig, prev) <= thresh)
+        if same:
+            slides[-1]['frames'].append(name)
+            slides[-1]['end'] = t + every
+            if len(text) > len(slides[-1]['text']):     # la lectura más larga suele ser la mejor
+                slides[-1]['text'], slides[-1]['words'] = text, words_of(text)
+        else:
+            slides.append({'start': t, 'end': t + every, 'text': text,
+                           'words': words_of(text), 'frames': [name]})
+        prev = sig
+    return slides
 
 
 def group_slides(frames, every: int, thresh: float = 0.6, min_words: int = 3):
@@ -144,9 +228,9 @@ def attach(segs, slides):
     return out
 
 
-def render_md(sections, slides, source):
+def render_md(sections, slides, source, modo='imagen'):
     lines = ["# Línea de tiempo (slides + relato)", "",
-             f"> Generado por `align_slides.py` desde {source}. "
+             f"> Generado por `align_slides.py` desde {source} (slides agrupadas por {modo}). "
              f"{len(slides)} slides, {len(sections)} tramos.", ""]
     for i, sec in enumerate(sections, 1):
         sl = sec['slide']
@@ -167,7 +251,11 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('kit')
     ap.add_argument('--frames-every', type=int)
-    ap.add_argument('--thresh', type=float, default=0.6)
+    ap.add_argument('--thresh', type=float, default=0.6,
+                    help='umbral de Jaccard cuando se agrupa por texto')
+    ap.add_argument('--visual-thresh', type=float, default=VISUAL_THRESH,
+                    help='diferencia visual máxima dentro de una misma slide')
+    ap.add_argument('--group-by', choices=('auto', 'visual', 'text'), default='auto')
     ap.add_argument('--out')
     ap.add_argument('--json-out')
     a = ap.parse_args(argv)
@@ -190,19 +278,32 @@ def main(argv=None):
                          "(pasá --frames-every para corregirlo)\n")
 
     frames = parse_ocr(ocr_p.read_text(encoding='utf-8', errors='ignore'))
-    slides = group_slides(frames, every, a.thresh)
+
+    sigs, _nums = (None, None)
+    if a.group_by in ('auto', 'visual'):
+        sigs, _nums = visual_signatures(kit / 'frames')
+        if sigs is None and a.group_by == 'visual':
+            sys.stderr.write("ERROR: --group-by visual pero no pude leer los frames\n")
+            return 1
+    modo = 'imagen' if sigs else 'texto'
+    if sigs:
+        slides = group_by_visual(frames, sigs, every, a.visual_thresh)
+    else:
+        slides = group_slides(frames, every, a.thresh)
+
     segs = parse_transcript(kit)
     if not segs:
         sys.stderr.write("ERROR: no encontré transcripción (.srt ni .txt)\n")
         return 1
     sections = attach(segs, slides)
 
-    md = render_md(sections, slides, ocr_p.name)
+    md = render_md(sections, slides, ocr_p.name, modo)
     out = pathlib.Path(a.out) if a.out else kit / 'timeline.md'
     out.write_text(md, encoding='utf-8')
 
     payload = {
         'frames_every': every,
+        'group_by': modo,
         'slides': [{'start': s['start'], 'end': s['end'], 'frames': s['frames'],
                     'text': s['text']} for s in slides],
         'sections': [{'start': x['start'], 'end': x['end'],
@@ -212,7 +313,7 @@ def main(argv=None):
     jout = pathlib.Path(a.json_out) if a.json_out else kit / 'timeline.json'
     jout.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
 
-    print(f"{len(frames)} frames → {len(slides)} slides → {len(sections)} tramos")
+    print(f"{len(frames)} frames → {len(slides)} slides (por {modo}) → {len(sections)} tramos")
     print(f"escrito {out} y {jout}")
     return 0
 

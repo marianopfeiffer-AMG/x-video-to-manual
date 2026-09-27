@@ -77,6 +77,11 @@ scripts/align_slides.py xvm-out        # → timeline.md + timeline.json
 Agrupa los frames que muestran la misma slide y arma tramos `[inicio–fin] · slide` con el
 relato adentro. Sin esto, el manual tiene texto y slides, pero desconectados.
 
+Agrupa **por imagen** (16×16 en gris vía ffmpeg), no por texto: con OCR sucio el texto de
+un frame no se parece al del anterior y cada frame queda como una slide propia (en un video
+real de 30 min: 79 "slides" por texto vs 25 por imagen). `--visual-thresh` ajusta la
+sensibilidad; `--group-by text` fuerza el modo viejo.
+
 ### 4. Armar el borrador
 
 ```bash
@@ -109,7 +114,7 @@ transcripción cruda como definitiva.
 - Los frames se sacan a resolución nativa: si los achicás, el OCR lee peor.
 - **`align_slides.py` necesita saber cada cuántos segundos sacaste los frames**
   (`meta.txt` lo guarda). Si armaste el kit a mano, pasá `--frames-every`.
-- Los slides suelen tener texto estilizado sobre imágenes: un solo frame puede dar OCR pobre.
+- **Los slides suelen tener texto estilizado sobre imágenes: un solo frame puede dar OCR pobre.**
 
 ## Referencias
 
