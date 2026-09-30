@@ -125,8 +125,9 @@ if [ -e "$SRC" ]; then
     IFS=':' read -r -a ROOTS <<< "$XVM_INPUT_ROOTS"
     for root in "${ROOTS[@]}"; do
       [ -n "$root" ] || continue
-      root_real="$(cd "$root" 2>/dev/null && pwd -P || true)"
-      case "$REAL_SRC" in "$root_real"/*) OK_ROOT=1;; esac
+      if root_real="$(cd "$root" 2>/dev/null && pwd -P)"; then
+        case "$REAL_SRC" in "$root_real"/*) OK_ROOT=1;; esac
+      fi
     done
     [ "$OK_ROOT" = "1" ] || { echo "ERROR: '$SRC' está fuera de XVM_INPUT_ROOTS" >&2; exit 2; }
   fi
