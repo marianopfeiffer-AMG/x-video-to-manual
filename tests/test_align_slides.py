@@ -193,3 +193,22 @@ def test_end_to_end_visual(tmp_path):
     assert 'por imagen' in md
     import json
     assert json.loads((tmp_path / 'timeline.json').read_text())['group_by'] == 'imagen'
+
+
+def test_screencast_se_reagrupa_por_ventanas():
+    import align_slides as al
+    frames = [(f"f_{i:03d}.jpg", f"texto distinto {i} " * 3) for i in range(1, 31)]
+    assert al.is_screencast(30, 28)
+    assert not al.is_screencast(30, 9)
+    assert not al.is_screencast(5, 5)           # pocos frames: no se decide
+    slides = al.group_by_window(frames, every=20, window=80)
+    assert len(slides) == 8                     # 30 frames × 20 s = 600 s → 8 ventanas de 80 s
+    assert slides[0]['start'] == 0 and slides[1]['start'] == 80
+
+
+def test_ocr_del_tramo_se_recorta():
+    import align_slides as al
+    text = "\n".join(["x", "ab"] + [f"línea legible {i}" for i in range(20)])
+    out = al.ocr_excerpt(text, 8)
+    assert len(out) == 9 and out[-1].startswith('(+12')
+    assert 'x' not in out and 'ab' not in out

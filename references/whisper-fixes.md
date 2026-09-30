@@ -36,10 +36,21 @@ El motor (`scripts/normalize_transcript.py`) **no trae reglas hardcodeadas**: le
 
 ## Cómo extenderlo
 
-1. Corré con `--report` y mirá el `corrections.json` (original, corregido, regla, línea).
+1. Corré con `--report` y mirá el `KIT/corrections.json` (original, corregido, regla, línea).
 2. Buscá en la transcripción frases que "no cierran" (el hablante nunca diría eso).
-3. Agregá la regla al TSV del dominio (o creá uno nuevo, p. ej. `references/fixes/mi-tema.tsv`).
-4. Si la corrección es dudosa, marcala `[?]` en el manual en vez de forzarla.
+3. **Correcciones de un solo video** → `KIT/fixes.tsv`, y corré con
+   `--fixes anthropic-agents --fixes KIT/fixes.tsv`. Quedan registradas y son reproducibles.
+4. **Errores que se repiten en un tema** → al TSV del dominio (o uno nuevo,
+   `references/fixes/<tema>.tsv`, que después se usa como `--fixes <tema>`).
+5. Si la corrección es dudosa, marcala `[?]` en el manual en vez de forzarla.
+
+Reglas de escritura:
+
+- Una palabra suelta lleva `\b`: `\bMCT\b` no toca "MCTS".
+- Whisper cambia mayúsculas al azar: usá `(?i)` al principio del patrón cuando el error
+  aparece con cualquier capitalización (`(?i)\bcloud code\b`).
+- Los errores de idioma (audio en inglés transcripto como español, o al revés) no se
+  corrigen con reglas: se re-transcribe sin `--lang`.
 
 ## Mejor aún: arreglarlo en el origen
 

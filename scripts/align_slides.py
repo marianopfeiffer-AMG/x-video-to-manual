@@ -14,10 +14,20 @@ frame termina siendo una "slide". Medido en un video real de 30 min: por texto 9
 79 slides; por imagen → 25. La señal visual está separada de forma limpia (misma slide
 ≤ 0,05 de diferencia; distinta, ≥ 0,14).
 
+**Screencasts.** En un tutorial grabado de la pantalla no hay slides: cada frame difiere del
+anterior (scroll, cursor, ventanas) y el agrupado visual devuelve casi una "slide" por
+frame (medido: 38 frames → 34). Si más del 60 % de los frames queda como slide propia, se
+reagrupa por VENTANAS DE TIEMPO (`--window`, default 60 s o 4 frames) y se avisa en el
+encabezado. `--group-by window` lo fuerza; `--no-screencast` lo desactiva.
+
+En `timeline.md` el texto en pantalla de cada tramo se recorta a `--ocr-lines` líneas
+(default 8): el OCR completo sigue en `slides-ocr.txt`.
+
 Uso:
     align_slides.py KIT                       # escribe KIT/timeline.md y timeline.json
     align_slides.py KIT --group-by text       # agrupar por texto (si no hay ffmpeg)
     align_slides.py KIT --visual-thresh 0.05  # más exigente agrupando slides
+    align_slides.py KIT --group-by window     # screencast: tramos de tiempo fijo
 """
 import argparse
 import json
@@ -37,6 +47,9 @@ NUMBER = re.compile(r'(\d+)')
 SIG_SIDE = 16                 # firma visual: 16x16 en escala de grises
 SIG_BYTES = SIG_SIDE * SIG_SIDE
 VISUAL_THRESH = 0.08          # diferencia media normalizada para separar dos slides
+SCREENCAST_RATIO = 0.6        # slides/frames por encima de esto = no hay slides (screencast)
+SCREENCAST_MIN_FRAMES = 10
+OCR_LINES = 8
 
 
 def hhmmss(sec: float) -> str:
@@ -185,6 +198,29 @@ def group_slides(frames, every: int, thresh: float = 0.6, min_words: int = 3):
     return slides
 
 
+def group_by_window(frames, every: int, window: int):
+    """Screencast: tramos de `window` segundos. El texto es la lectura más larga del tramo."""
+    slides = []
+    for name, text in frames:
+        idx = frame_index(name)
+        t = (idx - 1) * every if idx else 0
+        bucket = t // window
+        if slides and slides[-1]['bucket'] == bucket:
+            sl = slides[-1]
+            sl['frames'].append(name)
+            sl['end'] = t + every
+            if len(text) > len(sl['text']):
+                sl['text'], sl['words'] = text, words_of(text)
+        else:
+            slides.append({'start': bucket * window, 'end': t + every, 'text': text,
+                           'words': words_of(text), 'frames': [name], 'bucket': bucket})
+    return slides
+
+
+def is_screencast(n_frames: int, n_slides: int) -> bool:
+    return n_frames >= SCREENCAST_MIN_FRAMES and n_slides / n_frames > SCREENCAST_RATIO
+
+
 def parse_transcript(kit: pathlib.Path):
     """Segmentos con timestamps: del .srt si está; si no, del .txt aplanado."""
     for name in ('transcript.srt', 'audio.srt'):
@@ -228,10 +264,20 @@ def attach(segs, slides):
     return out
 
 
-def render_md(sections, slides, source, modo='imagen'):
+def ocr_excerpt(text: str, max_lines: int = OCR_LINES):
+    """Líneas legibles del OCR (sin migas de 1-3 caracteres), recortadas."""
+    good = [l.strip() for l in text.splitlines() if len(l.strip()) > 3]
+    extra = len(good) - max_lines
+    return good[:max_lines] + ([f"(+{extra} líneas en slides-ocr.txt)"] if extra > 0 else [])
+
+
+def render_md(sections, slides, source, modo='imagen', max_ocr_lines: int = OCR_LINES):
     lines = ["# Línea de tiempo (slides + relato)", "",
              f"> Generado por `align_slides.py` desde {source} (slides agrupadas por {modo}). "
              f"{len(slides)} slides, {len(sections)} tramos.", ""]
+    if modo.startswith('ventanas'):
+        lines += ["> **Screencast**: no hay slides; cada tramo es una ventana de tiempo y "
+                  "'en pantalla' es la captura más legible de esa ventana.", ""]
     for i, sec in enumerate(sections, 1):
         sl = sec['slide']
         rango = f"{hhmmss(sec['start'])}–{hhmmss(sec['end'])}"
@@ -239,7 +285,7 @@ def render_md(sections, slides, source, modo='imagen'):
             lines += [f"## {i}. [{rango}] · *(sin slide)*", ""]
         else:
             lines += [f"## {i}. [{rango}] · slide `{sl['frames'][0]}`", ""]
-            lines += ["> " + l for l in sl['text'].splitlines() if l.strip()]
+            lines += ["> " + l for l in ocr_excerpt(sl['text'], max_ocr_lines)]
             lines += [""]
         for s in sec['segs']:
             lines.append(f"- **[{hhmmss(s['start'])}]** {s['text']}")
@@ -255,7 +301,12 @@ def main(argv=None):
                     help='umbral de Jaccard cuando se agrupa por texto')
     ap.add_argument('--visual-thresh', type=float, default=VISUAL_THRESH,
                     help='diferencia visual máxima dentro de una misma slide')
-    ap.add_argument('--group-by', choices=('auto', 'visual', 'text'), default='auto')
+    ap.add_argument('--group-by', choices=('auto', 'visual', 'text', 'window'), default='auto')
+    ap.add_argument('--window', type=int, help='segundos por tramo en screencasts (default: max(60, 4 frames))')
+    ap.add_argument('--no-screencast', action='store_true',
+                    help='no reagrupar por tiempo aunque parezca un screencast')
+    ap.add_argument('--ocr-lines', type=int, default=OCR_LINES,
+                    help='líneas de OCR por tramo en timeline.md')
     ap.add_argument('--out')
     ap.add_argument('--json-out')
     a = ap.parse_args(argv)
@@ -279,17 +330,26 @@ def main(argv=None):
 
     frames = parse_ocr(ocr_p.read_text(encoding='utf-8', errors='ignore'))
 
+    window = a.window or max(60, 4 * every)
     sigs, _nums = (None, None)
-    if a.group_by in ('auto', 'visual'):
-        sigs, _nums = visual_signatures(kit / 'frames')
-        if sigs is None and a.group_by == 'visual':
-            sys.stderr.write("ERROR: --group-by visual pero no pude leer los frames\n")
-            return 1
-    modo = 'imagen' if sigs else 'texto'
-    if sigs:
-        slides = group_by_visual(frames, sigs, every, a.visual_thresh)
+    if a.group_by == 'window':
+        slides, modo = group_by_window(frames, every, window), "ventanas de %ds" % window
     else:
-        slides = group_slides(frames, every, a.thresh)
+        if a.group_by in ('auto', 'visual'):
+            sigs, _nums = visual_signatures(kit / 'frames')
+            if sigs is None and a.group_by == 'visual':
+                sys.stderr.write("ERROR: --group-by visual pero no pude leer los frames\n")
+                return 1
+        modo = 'imagen' if sigs else 'texto'
+        if sigs:
+            slides = group_by_visual(frames, sigs, every, a.visual_thresh)
+        else:
+            slides = group_slides(frames, every, a.thresh)
+        if (a.group_by == 'auto' and not a.no_screencast
+                and is_screencast(len(frames), len(slides))):
+            print("%d frames → %d slides: parece un screencast; reagrupo por ventanas de %ds"
+                  % (len(frames), len(slides), window), file=sys.stderr)
+            slides, modo = group_by_window(frames, every, window), "ventanas de %ds (screencast)" % window
 
     segs = parse_transcript(kit)
     if not segs:
@@ -297,7 +357,7 @@ def main(argv=None):
         return 1
     sections = attach(segs, slides)
 
-    md = render_md(sections, slides, ocr_p.name, modo)
+    md = render_md(sections, slides, ocr_p.name, modo, a.ocr_lines)
     out = pathlib.Path(a.out) if a.out else kit / 'timeline.md'
     out.write_text(md, encoding='utf-8')
 

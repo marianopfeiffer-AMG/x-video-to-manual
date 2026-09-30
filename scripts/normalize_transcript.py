@@ -13,16 +13,43 @@ por longitud de patrón descendente, para que las específicas ganen sobre las g
 La prioridad existe porque un patrón con lookaheads puede ser *largo en caracteres* pero
 *genérico en alcance* (ver la regla de "Cloud"). Se deduplican.
 
+`--fixes` acepta una ruta, o el nombre de un diccionario de la skill (`anthropic-agents` →
+`references/fixes/anthropic-agents.tsv`). Las rutas relativas que no existen desde el
+directorio actual se buscan en el directorio de la skill: los comandos del SKILL.md
+funcionan desde cualquier lugar.
+
+`--report` sin valor escribe `corrections.json` JUNTO A LA SALIDA (o a la entrada), nunca en
+el directorio actual: así cada kit guarda su propio reporte.
+
 Uso:
-    normalize_transcript.py transcript.txt --fixes references/fixes/anthropic-agents.tsv -o clean.txt
-    normalize_transcript.py transcript.txt --fixes a.tsv --fixes b.tsv --report
+    normalize_transcript.py kit/transcript.txt --fixes anthropic-agents -o kit/transcript.clean.txt --report
+    normalize_transcript.py kit/transcript.txt --fixes anthropic-agents --fixes kit/fixes.tsv --report
 """
+from __future__ import annotations
+
 import argparse
 import datetime as _dt
 import json
 import pathlib
 import re
 import sys
+
+SKILL_DIR = pathlib.Path(__file__).resolve().parent.parent
+FIXES_DIR = SKILL_DIR / 'references' / 'fixes'
+
+
+def resolve_fixes(arg: str) -> pathlib.Path | None:
+    """Ruta del diccionario: tal cual, relativa a la skill, o por nombre en references/fixes/."""
+    p = pathlib.Path(arg)
+    candidates = [p]
+    if not p.is_absolute():
+        candidates.append(SKILL_DIR / p)
+        name = p.name if p.suffix == '.tsv' else p.name + '.tsv'
+        candidates.append(FIXES_DIR / name)
+    for c in candidates:
+        if c.is_file():
+            return c
+    return None
 
 
 def load_fixes(path: pathlib.Path):
@@ -86,18 +113,20 @@ def main(argv=None):
     ap.add_argument('-o', '--out', help='archivo de salida (default: stdout)')
     ap.add_argument('--fixes', action='append', default=[],
                     help='TSV de reglas (repetible). Sin esto no se modifica nada.')
-    ap.add_argument('--report', nargs='?', const='corrections.json', default=None,
-                    help='escribe un JSON con cada corrección (default: corrections.json)')
+    ap.add_argument('--report', nargs='?', const='', default=None,
+                    help='escribe un JSON con cada corrección (default: corrections.json junto a la salida)')
     a = ap.parse_args(argv)
 
     raw = pathlib.Path(a.path).read_text(encoding='utf-8', errors='ignore')
 
-    rules = []
+    rules, used = [], []
     for f in a.fixes:
-        p = pathlib.Path(f)
-        if not p.exists():
-            sys.stderr.write(f"ERROR: no existe el diccionario {p}\n")
+        p = resolve_fixes(f)
+        if p is None:
+            sys.stderr.write(f"ERROR: no existe el diccionario {f} "
+                             f"(ni en {FIXES_DIR})\n")
             return 1
+        used.append(p)
         rules.extend(load_fixes(p))
 
     if not rules:
@@ -113,17 +142,18 @@ def main(argv=None):
     else:
         sys.stdout.write(clean)
 
-    if a.report:
+    if a.report is not None:
+        report = pathlib.Path(a.report) if a.report else \
+            (pathlib.Path(a.out) if a.out else pathlib.Path(a.path)).parent / 'corrections.json'
         payload = {
             'generated_at': _dt.datetime.now(_dt.timezone.utc).isoformat(),
             'input': str(a.path),
-            'fixes': [str(f) for f in a.fixes],
+            'fixes': [str(f) for f in used],
             'rule_count': len(rules),
             'corrections': log,
         }
-        pathlib.Path(a.report).write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
-        print(f"{len(log)} correcciones -> {a.report}", file=sys.stderr)
+        report.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+        print(f"{len(log)} correcciones -> {report}", file=sys.stderr)
     return 0
 
 

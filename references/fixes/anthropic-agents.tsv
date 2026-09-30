@@ -4,9 +4,13 @@
 # El reemplazo es LITERAL (no admite \1 ni grupos). Para variantes, escribí más reglas.
 # Orden: primero por prioridad (mayor = antes; default 100), después por longitud de patrón.
 #
-# OJO con las reglas genéricas: "Cloud" → "Claude" es tentador pero rompe "Google Cloud".
-# Por eso esa regla va con prioridad baja (corre última) y excluye los productos de
-# Google Cloud conocidos.
+# OJO con las reglas genéricas: "Cloud" → "Claude" es tentador pero rompe "Google Cloud" y
+# "the cloud". Por eso esa regla va con prioridad baja (corre última), es insensible a
+# mayúsculas (Whisper escribe "cloud" en minúscula) y excluye "Google Cloud …", "the/a cloud"
+# y los usos genéricos ("cloud computing", "cloud server"…).
+#
+# Las reglas de una sola palabra llevan \b: "MCT" no debe tocar "MCTS", ni "furnace" a "furnaces".
+# Para las correcciones propias de UN video, no toques este archivo: creá <kit>/fixes.tsv.
 
 Cloud Managed Asians	Claude Managed Agents	producto Anthropic
 Cloud Asian SDK	Claude Agent SDK	producto Anthropic
@@ -17,17 +21,17 @@ Agentic furnace	agentic harness	jerga del dominio
 Asian building	agentic building	jerga del dominio
 Managed Asians	Managed Agents	producto Anthropic
 CWC workshops	Code with Claude workshops	evento (Code with Claude)
-Cloud Code	Claude Code	producto Anthropic
+(?i)\bcloud code\b	Claude Code	producto Anthropic (cualquier capitalización)	200
 MCT servers	MCP servers	protocolo
 Asian SDK	Agent SDK	producto Anthropic
 checkwining	checkpointing	jerga del dominio
 Anthropik	Anthropic	empresa
 Asian ID	agent ID	jerga del dominio
-entropic	Anthropic	empresa
+(?i)\bentropic\b	Anthropic	empresa
 grab, glob	grep, glob	herramientas
-furnace	harness	jerga del dominio	50
-MCT	MCP	protocolo	50
-(?<!Google )\bCloud\b(?!\s+(?:Run|Storage|SQL|Spanner|Functions|Build|CDN|Armor|DNS|NAT|Logging|Monitoring|Platform|BigQuery|Firestore|Composer|Scheduler|Tasks|Endpoints|Deploy|Source|Shell|Vision|Translation|Text-to-Speech|Speech-to-Text))	Claude	modelo (excepto "Google Cloud …")	10
+\bfurnace\b	harness	jerga del dominio	50
+\bMCT\b	MCP	protocolo	50
+(?i)(?<!Google )(?<!the )(?<!a )\bCloud\b(?!\s+(?:computing|servers?|providers?|storage|hosting|native|infrastructure|console|credits|Run|Storage|SQL|Spanner|Functions|Build|CDN|Armor|DNS|NAT|Logging|Monitoring|Platform|BigQuery|Firestore|Composer|Scheduler|Tasks|Endpoints|Deploy|Source|Shell|Vision|Translation|Text-to-Speech|Speech-to-Text))	Claude	modelo (excepto "Google Cloud …")	10
 Claude Côde	Claude Code	producto Anthropic (acento espurio)
 Cloud Côde	Claude Code	producto Anthropic (acento espurio)
 Claud Md	CLAUDE.md	archivo de instrucciones

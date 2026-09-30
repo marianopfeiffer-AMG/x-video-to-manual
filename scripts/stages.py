@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """stages.py — caché de etapas para el pipeline x-video-to-manual.
 
-El pipeline es caro: Whisper sin GPU corre a ~0.5x realtime, así que un video de 20
-minutos tarda ~40. La versión anterior, si se cortaba en el minuto 30, arrancaba de cero.
+El pipeline es caro: Whisper `small` sin GPU tarda ~1,8× la duración del audio (un video de
+20 minutos, ~36). La versión anterior, si se cortaba en el minuto 30, arrancaba de cero.
+La caché es ENTRE etapas: la transcripción es una sola etapa y, si se corta a mitad, se rehace.
+
+El kit es movible: las salidas se guardan relativas al directorio de `.stages.json` y las
+entradas se identifican por nombre, no por ruta absoluta. `mark` toma un lock sobre el
+estado para que dos procesos no se pisen el JSON.
 
 Cada etapa se identifica por una **firma** derivada de sus parámetros y de los archivos
 de entrada. Si la firma coincide con la guardada y las salidas siguen existiendo, la
@@ -21,11 +26,18 @@ Uso:
     stages.py clear --state .stages.json
 """
 import argparse
+import contextlib
 import hashlib
 import json
+import os
 import pathlib
 import sys
 import time
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover  (Windows)
+    fcntl = None
 
 SAMPLE = 65536
 SIG_LEN = 16
@@ -35,7 +47,9 @@ def file_sig(path, sample: int = SAMPLE):
     """Firma de un archivo o directorio. `None` si no existe.
 
     Archivo: tamaño + sha256 de (primeros `sample` bytes + últimos `sample` bytes).
-    Directorio: cantidad, nombres y tamaños de los archivos que contiene.
+    Directorio: cantidad, nombres y tamaños de los archivos que contiene, más el contenido
+    muestreado del primero, el del medio y el último (un frame re-extraído con el mismo
+    tamaño pero otra imagen cambia la firma).
     """
     p = pathlib.Path(path)
     if not p.exists():
@@ -46,6 +60,8 @@ def file_sig(path, sample: int = SAMPLE):
         for x in files:
             h.update(x.relative_to(p).as_posix().encode('utf-8'))
             h.update(str(x.stat().st_size).encode('ascii'))
+        for x in {files[0], files[len(files) // 2], files[-1]} if files else ():
+            h.update((file_sig(x, sample=4096) or '').encode('ascii'))
         return f"d{len(files)}:{h.hexdigest()[:SIG_LEN]}"
     size = p.stat().st_size
     with p.open('rb') as f:
@@ -59,9 +75,10 @@ def file_sig(path, sample: int = SAMPLE):
 
 def signature(params=(), files=()):
     """Firma de una etapa: parámetros + firmas de los archivos de entrada."""
+    # Por nombre, no por ruta absoluta: mover el kit no invalida la caché.
     payload = {
         'params': {str(k): str(v) for k, v in sorted(dict(params).items())},
-        'files': {str(f): file_sig(f) for f in files},
+        'files': {pathlib.Path(f).name: file_sig(f) for f in files},
     }
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode('utf-8')
     return hashlib.sha256(blob).hexdigest()[:SIG_LEN]
@@ -80,8 +97,45 @@ def load(state):
 
 
 def save(state, data):
-    pathlib.Path(state).write_text(
-        json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True), encoding='utf-8')
+    p = pathlib.Path(state)
+    tmp = p.with_suffix(p.suffix + '.tmp')
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True), encoding='utf-8')
+    os.replace(tmp, p)                       # atómico: nunca queda un JSON a medias
+
+
+@contextlib.contextmanager
+def locked(state):
+    """Lock exclusivo sobre el estado mientras se lee y reescribe (dos corridas al mismo kit)."""
+    if fcntl is None:
+        yield
+        return
+    lock_path = pathlib.Path(str(state) + '.lock')
+    with open(lock_path, 'a') as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def _rel(state, out) -> str:
+    """Salida relativa al directorio del estado si está adentro; si no, absoluta.
+
+    Una ruta que ya viene relativa se guarda tal cual: se interpreta relativa al kit.
+    """
+    if not pathlib.Path(out).is_absolute():
+        return str(out)
+    base = pathlib.Path(state).resolve().parent
+    o = pathlib.Path(out).resolve()
+    try:
+        return o.relative_to(base).as_posix()
+    except ValueError:
+        return str(o)
+
+
+def _abs(state, out) -> pathlib.Path:
+    o = pathlib.Path(out)
+    return o if o.is_absolute() else pathlib.Path(state).resolve().parent / o
 
 
 def is_ok(state, stage, sig, _data=None):
@@ -91,19 +145,20 @@ def is_ok(state, stage, sig, _data=None):
     if not entry or entry.get('sig') != sig:
         return False
     for out in entry.get('outputs', []):
-        if not pathlib.Path(out).exists():
+        if not _abs(state, out).exists():
             return False
     return True
 
 
 def mark(state, stage, sig, outputs=()):
-    data = load(state)
-    data[stage] = {
-        'sig': sig,
-        'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-        'outputs': [str(o) for o in outputs],
-    }
-    save(state, data)
+    with locked(state):
+        data = load(state)
+        data[stage] = {
+            'sig': sig,
+            'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            'outputs': [_rel(state, o) for o in outputs],
+        }
+        save(state, data)
     return data
 
 
@@ -156,7 +211,7 @@ def main(argv=None):
             sys.stderr.write(f"etapa {a.stage}: entradas cambiaron "
                              f"({entry.get('sig')} ≠ {a.sig})\n")
         else:
-            faltan = [o for o in entry.get('outputs', []) if not pathlib.Path(o).exists()]
+            faltan = [o for o in entry.get('outputs', []) if not _abs(a.state, o).exists()]
             sys.stderr.write(f"etapa {a.stage}: falta la salida {faltan}\n")
         return 1
 

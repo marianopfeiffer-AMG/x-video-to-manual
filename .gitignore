@@ -6,3 +6,10 @@ frames/
 __pycache__/
 .stages.json
 .pytest_cache/
+
+# salidas de corridas (nunca al repo)
+corrections.json
+manual-draft.md
+*.lock
+.stages.json.tmp
+.ocr-tmp.png

@@ -138,3 +138,30 @@ def test_cli_clear(tmp_path):
     stages.mark(state, 'audio', 'aaaa', [])
     assert stages.main(['clear', '--state', str(state)]) == 0
     assert not state.exists()
+
+
+def test_kit_movible_sigue_en_cache(tmp_path):
+    kit = tmp_path / 'kit'
+    kit.mkdir()
+    audio = kit / 'audio.wav'
+    audio.write_bytes(b'a' * 500)
+    out = kit / 'transcript.srt'
+    out.write_text('1\n')
+    state = kit / '.stages.json'
+    sig = stages.signature({'model': 'small'}, [audio])
+    stages.mark(state, 'asr', sig, [out])
+    assert json.loads(state.read_text())['asr']['outputs'] == ['transcript.srt']
+    nuevo = tmp_path / 'kit2'
+    kit.rename(nuevo)
+    sig2 = stages.signature({'model': 'small'}, [nuevo / 'audio.wav'])
+    assert sig2 == sig
+    assert stages.is_ok(nuevo / '.stages.json', 'asr', sig2)
+
+
+def test_directorio_cambia_si_cambia_el_contenido_con_el_mismo_tamaño(tmp_path):
+    d = tmp_path / 'frames'
+    d.mkdir()
+    (d / 'f_001.jpg').write_bytes(b'A' * 64)
+    a = stages.file_sig(d)
+    (d / 'f_001.jpg').write_bytes(b'B' * 64)
+    assert stages.file_sig(d) != a

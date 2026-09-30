@@ -8,10 +8,23 @@ vocabulario correcto ANTES, con `--initial_prompt`.
 Las slides son una fuente perfecta: ya tienen escrito —bien escrito— el nombre de los
 productos, las siglas y la jerga del dominio.
 
+**Presupuesto de tokens.** openai-whisper se queda con los ÚLTIMOS `n_text_ctx // 2 - 1`
+(= 223) tokens del `--initial_prompt` y descarta el principio. Por eso:
+  1. el prompt se recorta por TOKENS (`--max-tokens`, default 200), no por caracteres;
+  2. se imprime de menor a mayor importancia: los `--extra` del usuario y los mejores
+     términos quedan AL FINAL, que es lo que Whisper conserva si igual se pasa.
+Con tiktoken instalado se cuenta exacto (encoding `gpt2`, el de Whisper para inglés);
+si no, se estima de forma conservadora (~2,7 caracteres por token).
+
+**Screencasts.** En un tutorial grabado de la pantalla, el OCR se llena de la interfaz
+(Chrome, Bookmarks, Window…), que se repite en todos los frames y por eso pasa el
+`--min-count`. Esos términos se filtran con una lista de UI, igual que los identificadores
+de código (`EMA_9_21_Cross`) y las tiras aleatorias de OCR (`GWJOttwiXHO7IWAIP`).
+
 Uso:
     build_vocab.py slides-ocr.txt                       # imprime la lista de términos
-    build_vocab.py slides-ocr.txt --extra "Claude, MCP" # agrega términos tuyos (van primero)
-    build_vocab.py slides-ocr.txt --json                # {terms, prompt, counts}
+    build_vocab.py slides-ocr.txt --extra "Claude, MCP" # agrega términos tuyos (máxima prioridad)
+    build_vocab.py slides-ocr.txt --json                # {terms, prompt, tokens, counts}
 """
 import argparse
 import json
@@ -25,6 +38,15 @@ NOISE = {
     'slide', 'slides', 'frame', 'frames', 'image', 'img',
 }
 
+# Interfaz de navegadores y sistemas operativos: aparece en cada frame de un screencast.
+UI_STOP = set("""
+chrome safari firefox edge brave arc finder desktop dock menu toolbar sidebar
+bookmarks bookmark window windows file edit view history help download downloads upload
+search settings preferences profile share tab tabs home new open save close reload
+back forward sign login logout account accounts notifications inbox extensions tools
+untitled copy paste undo redo select format insert zoom fullscreen minimize
+""".split())
+
 STOP = set("""
 a an the and or but if then than that this these those of to in on at by for with from
 as is are was were be been being it its he she they them him his her their our your my
@@ -35,6 +57,11 @@ nor don now s t ll ve re
 """.split())
 
 WORD = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:[+#._-][A-Za-z0-9]+)*")
+# Tiras aleatorias de OCR: mayúsculas, minúsculas y mayúsculas otra vez (GWJOttwiXHO…) o
+# letras y dígitos alternados muchas veces (x9Fk2Lm7…).
+JUNK = re.compile(r"[A-Z]{3,}[a-z]+[A-Z]{2,}|(?:[A-Za-z]+\d+){3,}")
+CHARS_PER_TOKEN = 2.7          # estimación conservadora sin tiktoken (medido: ~3,0)
+WHISPER_PROMPT_TOKENS = 223    # lo que openai-whisper conserva del initial_prompt
 EXTRA_SEP = re.compile(r"[,\n;]+")
 
 
@@ -62,6 +89,13 @@ def interesting(tok, n, mid):
     slide tenía el texto apretado o la resolución era baja. Meter eso en el prompt de
     Whisper es peor que no sesgarlo: le sugiere exactamente el ruido que queríamos evitar.
     """
+    if '_' in tok or JUNK.search(tok):
+        return False                      # identificador de código o basura de OCR: no se dice
+    if tok.lower() in UI_STOP:
+        return False                      # interfaz del navegador/SO (screencasts)
+    if '-' in tok and (any(len(p) > 12 for p in tok.split('-'))
+                       or (tok.replace('-', '').isupper() and len(tok) > 8)):
+        return False                      # "PRODUCTION-SCRI": texto cortado por el OCR
     if tok.isalpha() and tok.isupper():
         return 2 <= len(tok) <= 6        # MCP, SDK, API… pero no texto en mayúsculas
     if any(c.isupper() for c in tok[1:]):
@@ -75,8 +109,30 @@ def interesting(tok, n, mid):
     return False
 
 
-def build(text: str, extra=(), min_count: int = 1, max_chars: int = 900):
-    """Extrae el vocabulario y devuelve (terminos, conteos)."""
+_ENCODER = None
+
+
+def count_tokens(text: str) -> int:
+    """Tokens que ocupa `text` en el prompt de Whisper (exacto con tiktoken, si no estimado)."""
+    global _ENCODER
+    if _ENCODER is None:
+        try:
+            import tiktoken  # type: ignore
+            _ENCODER = tiktoken.get_encoding('gpt2')
+        except Exception:
+            _ENCODER = False
+    if _ENCODER:
+        return len(_ENCODER.encode(' ' + text))
+    return int(len(text) / CHARS_PER_TOKEN) + 1
+
+
+def build(text: str, extra=(), min_count: int = 1, max_chars: int = 900, max_tokens: int = 200,
+          ocr_terms: bool = True):
+    """Extrae el vocabulario y devuelve (terminos, conteos).
+
+    `terminos` está ordenado de MAYOR a menor importancia; `prompt_of()` lo invierte para
+    Whisper. El recorte respeta los dos topes: caracteres y tokens.
+    """
     # Los headers "===== f_001.jpg =====" del kit no aportan vocabulario.
     text = '\n'.join(l for l in text.splitlines() if not l.startswith('====='))
 
@@ -93,7 +149,7 @@ def build(text: str, extra=(), min_count: int = 1, max_chars: int = 900):
         counts[tok] = (n + 1, mid)
 
     cands = [(tok, n, mid) for tok, (n, mid) in counts.items()
-             if n >= min_count and interesting(tok, n, mid)]
+             if ocr_terms and n >= min_count and interesting(tok, n, mid)]
     # Prioridad: capitalizado en medio de oración > repetido > más largo.
     cands.sort(key=lambda t: (t[2] > 0, t[1] >= 2, len(t[0])), reverse=True)
 
@@ -107,20 +163,30 @@ def build(text: str, extra=(), min_count: int = 1, max_chars: int = 900):
             continue
         if total + len(t) + 2 > max_chars:
             break
+        if count_tokens(prompt_of(out + [t])) > max_tokens:
+            break
         seen.add(t)
         out.append(t)
         total += len(t) + 2
     return out, counts
 
 
+def prompt_of(terms) -> str:
+    """Prompt para Whisper: lo más importante AL FINAL (Whisper conserva la cola)."""
+    return ', '.join(reversed(list(terms)))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('ocr', help='slides-ocr.txt (o "-" para stdin)')
     ap.add_argument('--extra', action='append', default=[],
-                    help='términos propios, separados por coma (repetible; van primero)')
+                    help='términos propios, separados por coma (repetible; máxima prioridad)')
     ap.add_argument('--min-count', type=int, default=1)
-    ap.add_argument('--max-chars', type=int, default=900,
-                    help='tope del prompt (Whisper lo trunca cerca de los 224 tokens)')
+    ap.add_argument('--max-chars', type=int, default=900)
+    ap.add_argument('--max-tokens', type=int, default=200,
+                    help=f'tope en tokens (Whisper conserva los últimos {WHISPER_PROMPT_TOKENS})')
+    ap.add_argument('--no-ocr-terms', action='store_true',
+                    help='solo los --extra (para recortar un vocabulario manual al presupuesto)')
     ap.add_argument('--json', action='store_true')
     ap.add_argument('--out')
     a = ap.parse_args(argv)
@@ -132,11 +198,13 @@ def main(argv=None):
     for chunk in a.extra:
         extra.extend(EXTRA_SEP.split(chunk))
 
-    terms, counts = build(raw, extra, a.min_count, a.max_chars)
-    prompt = ', '.join(terms)
+    terms, counts = build(raw, extra, a.min_count, a.max_chars, a.max_tokens,
+                          ocr_terms=not a.no_ocr_terms)
+    prompt = prompt_of(terms)
 
     if a.json:
         payload = {'terms': terms, 'prompt': prompt, 'char_count': len(prompt),
+                   'tokens': count_tokens(prompt),
                    'counts': {k: {'n': v[0], 'mid_sentence': v[1]} for k, v in counts.items()}}
         salida = json.dumps(payload, ensure_ascii=False, indent=2)
     else:

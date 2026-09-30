@@ -1,11 +1,13 @@
 # {TÍTULO}
 
 **Fuente:** {link o archivo} — {duración}
-**Evento / contexto:** {charla, conferencia, podcast…}
-**Orador:** {nombre, rol, organización} *(verificado en la placa de título)*
-**Procesado por:** {herramientas}
+**Idioma del audio:** {idioma}
+**Evento / contexto:** {charla, conferencia, podcast, tutorial de pantalla…}
+**Orador:** {nombre, rol, organización} *(verificado en la placa de título | no verificado)*
+**Procesado por:** x-video-to-manual (Whisper {modelo}, tesseract)
 
-> Nota de fidelidad: transcripción automática corregida. Las correcciones dudosas van marcadas `[?]`.
+> Nota de fidelidad: transcripción automática corregida. Lo dudoso va marcado `[?]` donde
+> aparece. Este manual resume lo que dice y muestra el video; no agrega opiniones.
 
 ## 1. Resumen ejecutivo (TL;DR)
 
@@ -27,17 +29,19 @@
 
 - …
 
-## 5. Diagrama
+## 5. Diagrama (si el video muestra uno)
 
 ```
 {diagrama reconstruido}
 ```
 
+<!-- Opcional y solo si el usuario lo pidió: "## Evaluación (opinión, no del video)". -->
+
 ## Apéndice A — Correcciones aplicadas
 
-| Crudo | Corrección |
-|---|---|
-| … | … |
+| Crudo | Corrección | Origen (diccionario / manual) |
+|---|---|---|
+| … | … | … |
 
 ## Apéndice B — Transcripción corregida
 

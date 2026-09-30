@@ -11,13 +11,15 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        # 3.9 = el python3 del sistema en macOS; 3.12 = el del VPS (Ubuntu 24.04).
+        python: ['3.9', '3.12']
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: ${{ matrix.python }}
 
       - name: Instalar dependencias de test
         run: pip install -r requirements-dev.txt
@@ -34,7 +36,7 @@ jobs:
 
       - name: bash -n (sintaxis, macOS bash 3.2)
         if: matrix.os == 'macos-latest'
-        run: bash -n scripts/x-video-to-manual.sh
+        run: for f in scripts/*.sh; do bash -n "$f"; done
 
       - name: --help no debe imprimir código
         run: |
