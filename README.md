@@ -269,14 +269,18 @@ pytest -q
 ## Instalarla en un agente
 
 La skill instalada en un agente tiene que ser **este repo**, no una copia suelta (una copia
-se desfasa y los arreglos nunca llegan). Con OpenClaw:
+se desfasa y los arreglos nunca llegan). Con OpenClaw, el clon va **directamente** en el
+directorio de skills del workspace (OpenClaw descarta los symlinks que salen de ese
+directorio: `reason=symlink-escape`):
 
 ```bash
-git clone https://github.com/marianopfeiffer-AMG/x-video-to-manual.git <workspace>/repos/x-video-to-manual
-ln -sfn <workspace>/repos/x-video-to-manual <workspace>/skills/x-video-to-manual
-openclaw skills list | grep x-video-to-manual          # debe figurar "ready"
-# actualizar:  git -C <workspace>/repos/x-video-to-manual pull --ff-only
+git clone https://github.com/marianopfeiffer-AMG/x-video-to-manual.git <workspace>/skills/x-video-to-manual
+openclaw skills info x-video-to-manual                 # "Ready" y los binarios en ✓
+# actualizar:  git -C <workspace>/skills/x-video-to-manual pull --ff-only
 ```
+
+No uses el skill-workshop para actualizarla: una propuesta aplicada copia archivos sueltos
+encima del repo.
 
 ## Licencia
 
